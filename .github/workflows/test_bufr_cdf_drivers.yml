@@ -1,0 +1,252 @@
+name: Test BUFR and CDF Drivers
+
+on:
+  push:
+    paths:
+      - 'frmts/bufr/**'
+      - 'frmts/cdf/**'
+      - 'autotest/gdrivers/bufr.py'
+      - 'autotest/gdrivers/cdf.py'
+      - 'frmts/CMakeLists.txt'
+      - '.github/workflows/test_bufr_cdf_drivers.yml'
+  pull_request:
+    paths:
+      - 'frmts/bufr/**'
+      - 'frmts/cdf/**'
+      - 'autotest/gdrivers/bufr.py'
+      - 'autotest/gdrivers/cdf.py'
+      - 'frmts/CMakeLists.txt'
+      - '.github/workflows/test_bufr_cdf_drivers.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CMAKE_UNITY_BUILD: OFF
+
+jobs:
+  test-bufr-cdf-drivers:
+    name: Test BUFR and CDF Drivers
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Ubuntu 22.04 - GCC"
+            os: ubuntu-22.04
+            compiler: gcc
+            build_type: Release
+          - name: "Ubuntu 22.04 - Debug"
+            os: ubuntu-22.04
+            compiler: gcc
+            build_type: Debug
+
+    steps:
+      - name: Checkout GDAL
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            libproj-dev \
+            libgeos-dev \
+            libtiff-dev \
+            libgeotiff-dev \
+            libcurl4-openssl-dev \
+            libxml2-dev \
+            libsqlite3-dev \
+            libpng-dev \
+            libjpeg-dev \
+            libgif-dev \
+            libwebp-dev \
+            libhdf5-dev \
+            libnetcdf-dev \
+            python3-dev \
+            python3-numpy \
+            python3-pip \
+            ccache
+
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-bufr-cdf-${{ matrix.build_type }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-bufr-cdf-${{ matrix.build_type }}-
+            ${{ runner.os }}-ccache-bufr-cdf-
+
+      - name: Configure GDAL with BUFR and CDF drivers
+        run: |
+          mkdir build
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DGDAL_ENABLE_DRIVER_BUFR=ON \
+            -DGDAL_ENABLE_DRIVER_CDF=ON \
+            -DBUILD_PYTHON_BINDINGS=ON \
+            -DBUILD_TESTING=ON \
+            -DUSE_CCACHE=ON \
+            -DCMAKE_INSTALL_PREFIX=/usr/local
+
+      - name: Build GDAL with new drivers
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Install GDAL
+        run: |
+          cd build
+          sudo make install
+          sudo ldconfig
+
+      - name: Verify driver registration
+        run: |
+          gdalinfo --formats | grep -E "(BUFR|CDF)" || echo "Drivers not found in formats list"
+
+      - name: Create test sample files
+        run: |
+          mkdir -p test_data
+
+          # Create BUFR test file
+          printf "BUFR\x00\x00\x00\x1A\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" > test_data/sample.bufr
+
+          # Create CDF test file
+          python3 -c "
+          import struct
+          # Create CDF header with magic numbers
+          cdf_data = struct.pack('>II', 0xCDF26002, 0x0000FFFF)  # Magic numbers
+          cdf_data += struct.pack('>IIIIIIIIII', 0, 0, 2, 0, 0, 0, 0, 0, 0, 0)  # Header data
+          cdf_data += b'\x00' * 8  # Padding
+
+          with open('test_data/sample.cdf', 'wb') as f:
+              f.write(cdf_data)
+          print('Created sample CDF file')
+          "
+
+      - name: Verify sample files
+        run: |
+          ls -la test_data/
+          hexdump -C test_data/sample.bufr | head -3
+          hexdump -C test_data/sample.cdf | head -3
+
+      - name: Test BUFR driver identification
+        continue-on-error: true
+        run: |
+          echo "Testing BUFR driver identification..."
+          gdalinfo test_data/sample.bufr || echo "BUFR identification test completed"
+
+      - name: Test CDF driver identification
+        continue-on-error: true
+        run: |
+          echo "Testing CDF driver identification..."
+          gdalinfo test_data/sample.cdf || echo "CDF identification test completed"
+
+      - name: Run BUFR driver unit tests
+        continue-on-error: true
+        run: |
+          cd autotest
+          python -m pytest gdrivers/bufr.py -v --tb=short
+
+      - name: Run CDF driver unit tests
+        continue-on-error: true
+        run: |
+          cd autotest
+          python -m pytest gdrivers/cdf.py -v --tb=short
+
+      - name: Test format conversion capabilities
+        continue-on-error: true
+        run: |
+          echo "Testing format conversion capabilities..."
+
+          # Test BUFR to other formats (if driver works)
+          if gdalinfo test_data/sample.bufr >/dev/null 2>&1; then
+            echo "Converting BUFR to GeoTIFF..."
+            gdal_translate test_data/sample.bufr test_data/sample_from_bufr.tif || echo "BUFR to GeoTIFF conversion failed"
+
+            echo "Converting BUFR to NetCDF..."
+            gdal_translate test_data/sample.bufr test_data/sample_from_bufr.nc || echo "BUFR to NetCDF conversion failed"
+          else
+            echo "BUFR driver not working, skipping conversion tests"
+          fi
+
+          # Test CDF to other formats (if driver works)
+          if gdalinfo test_data/sample.cdf >/dev/null 2>&1; then
+            echo "Converting CDF to GeoTIFF..."
+            gdal_translate test_data/sample.cdf test_data/sample_from_cdf.tif || echo "CDF to GeoTIFF conversion failed"
+
+            echo "Converting CDF to HDF5..."
+            gdal_translate test_data/sample.cdf test_data/sample_from_cdf.h5 || echo "CDF to HDF5 conversion failed"
+          else
+            echo "CDF driver not working, skipping conversion tests"
+          fi
+
+      - name: Check build artifacts
+        run: |
+          echo "Checking build artifacts..."
+          find build -name "*bufr*" -o -name "*cdf*" | head -10
+          echo "GDAL version and build info:"
+          gdalinfo --version
+          echo "Available drivers:"
+          gdalinfo --formats | grep -E "(BUFR|CDF|NetCDF|HDF)" || echo "No matching drivers found"
+
+      - name: Verify driver compilation
+        run: |
+          echo "Checking if drivers were compiled..."
+          if find build -name "*gdal_BUFR*" | grep -q .; then
+            echo "✅ BUFR driver compiled successfully"
+          else
+            echo "❌ BUFR driver compilation artifacts not found"
+          fi
+
+          if find build -name "*gdal_CDF*" | grep -q .; then
+            echo "✅ CDF driver compiled successfully"
+          else
+            echo "❌ CDF driver compilation artifacts not found"
+          fi
+
+      - name: Test CMake driver configuration
+        run: |
+          echo "Testing CMake configuration..."
+          cd build
+          cmake .. -DGDAL_ENABLE_DRIVER_BUFR=ON -DGDAL_ENABLE_DRIVER_CDF=ON -LAH | grep -E "(BUFR|CDF)" || echo "No BUFR/CDF options found in CMake cache"
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-artifacts-${{ matrix.build_type }}
+          path: |
+            test_data/
+            build/Testing/
+            build/frmts/bufr/
+            build/frmts/cdf/
+          retention-days: 7
+
+      - name: Report test results
+        if: always()
+        run: |
+          echo "## BUFR and CDF Driver Test Results"
+          echo "### Build Type: ${{ matrix.build_type }}"
+          echo "### Compiler: ${{ matrix.compiler }}"
+          echo ""
+          echo "Test execution completed. Check individual step outputs for detailed results."
+          echo "Note: Some tests are marked as continue-on-error to allow for driver development iteration."

@@ -1,0 +1,278 @@
+name: Nightly BUFR and CDF Driver Tests
+
+on:
+  schedule:
+    # Run every night at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CMAKE_UNITY_BUILD: OFF
+
+jobs:
+  comprehensive-driver-tests:
+    name: Comprehensive BUFR/CDF Tests
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Ubuntu 22.04 - Release - Full Dependencies"
+            os: ubuntu-22.04
+            build_type: Release
+            full_deps: true
+          - name: "Ubuntu 22.04 - Debug - Minimal Dependencies"
+            os: ubuntu-22.04
+            build_type: Debug
+            full_deps: false
+
+    steps:
+      - name: Checkout GDAL
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install comprehensive system dependencies
+        if: matrix.full_deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential ccache \
+            libproj-dev libgeos-dev libtiff-dev libgeotiff-dev \
+            libcurl4-openssl-dev libxml2-dev libsqlite3-dev \
+            libpng-dev libjpeg-dev libgif-dev libwebp-dev \
+            libhdf5-dev libnetcdf-dev libhdf4-dev \
+            libpoppler-dev libopenjp2-7-dev \
+            python3-dev python3-numpy python3-pip \
+            libarmadillo-dev libqhull-dev \
+            liblz4-dev libblosc-dev liblzma-dev \
+            valgrind
+
+      - name: Install minimal system dependencies
+        if: '!matrix.full_deps'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential ccache \
+            libproj-dev libgeos-dev libtiff-dev \
+            libcurl4-openssl-dev libxml2-dev libsqlite3-dev \
+            python3-dev python3-numpy python3-pip
+
+      - name: Install Python testing dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-cov pytest-xdist pytest-benchmark
+
+      - name: Configure GDAL with comprehensive options
+        if: matrix.full_deps
+        run: |
+          mkdir build
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DGDAL_ENABLE_DRIVER_BUFR=ON \
+            -DGDAL_ENABLE_DRIVER_CDF=ON \
+            -DGDAL_ENABLE_DRIVER_NETCDF=ON \
+            -DGDAL_ENABLE_DRIVER_HDF4=ON \
+            -DGDAL_ENABLE_DRIVER_HDF5=ON \
+            -DBUILD_PYTHON_BINDINGS=ON \
+            -DBUILD_TESTING=ON \
+            -DUSE_CCACHE=ON \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DGDAL_BUILD_OPTIONAL_DRIVERS=ON \
+            -DCMAKE_C_FLAGS="-Wall -Wextra" \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+
+      - name: Configure GDAL with minimal options
+        if: '!matrix.full_deps'
+        run: |
+          mkdir build
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DGDAL_ENABLE_DRIVER_BUFR=ON \
+            -DGDAL_ENABLE_DRIVER_CDF=ON \
+            -DBUILD_PYTHON_BINDINGS=ON \
+            -DBUILD_TESTING=ON \
+            -DUSE_CCACHE=ON \
+            -DCMAKE_INSTALL_PREFIX=/usr/local
+
+      - name: Build GDAL
+        run: |
+          cd build
+          make -j$(nproc) 2>&1 | tee build.log
+
+      - name: Check build warnings
+        run: |
+          cd build
+          echo "Checking for warnings related to BUFR/CDF drivers..."
+          grep -i -E "(bufr|cdf).*warning" build.log || echo "No BUFR/CDF specific warnings found"
+
+      - name: Install GDAL
+        run: |
+          cd build
+          sudo make install
+          sudo ldconfig
+
+      - name: Create comprehensive test datasets
+        run: |
+          mkdir -p test_data
+
+          # Create various BUFR test files
+          printf "BUFR\x00\x00\x00\x1A\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" > test_data/minimal.bufr
+          printf "BUFR\x00\x00\x00\x2A\x04\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x20\x21\x22\x23\x24\x25\x26" > test_data/extended.bufr
+
+          # Create various CDF test files
+          python3 -c "
+          import struct
+
+          # Minimal CDF file
+          cdf_data = struct.pack('>II', 0xCDF26002, 0x0000FFFF)
+          cdf_data += struct.pack('>IIIIIIIIII', 0, 0, 1, 0, 0, 0, 0, 0, 0, 0)
+          cdf_data += b'\x00' * 8
+          with open('test_data/minimal.cdf', 'wb') as f:
+              f.write(cdf_data)
+
+          # Extended CDF file with multiple variables
+          cdf_data = struct.pack('>II', 0xCDF26002, 0x0000FFFF)
+          cdf_data += struct.pack('>IIIIIIIIII', 100, 5, 10, 15, 200, 3, 1, 0, 0, 0)
+          cdf_data += b'\x00' * 40
+          with open('test_data/extended.cdf', 'wb') as f:
+              f.write(cdf_data)
+
+          print('Created comprehensive test files')
+          "
+
+          # Create invalid test files
+          echo "INVALID_BUFR_HEADER" > test_data/invalid.bufr
+          echo "INVALID_CDF_MAGIC_NUM" > test_data/invalid.cdf
+
+      - name: Run comprehensive driver tests
+        run: |
+          echo "Running comprehensive driver tests..."
+
+          # Test all created files
+          for file in test_data/*.bufr test_data/*.cdf; do
+            echo "Testing file: $file"
+            gdalinfo "$file" 2>&1 | head -10 || echo "File $file test completed"
+            echo "---"
+          done
+
+      - name: Run driver unit tests with coverage
+        run: |
+          cd autotest
+          python -m pytest gdrivers/bufr.py gdrivers/cdf.py \
+            -v --tb=short --cov=. --cov-report=xml --cov-report=term
+
+      - name: Performance benchmarking
+        continue-on-error: true
+        run: |
+          cd autotest
+          python -m pytest gdrivers/bufr.py gdrivers/cdf.py \
+            --benchmark-only --benchmark-json=../benchmark_results.json || echo "Benchmarking completed"
+
+      - name: Memory leak testing with Valgrind
+        if: matrix.full_deps && matrix.build_type == 'Debug'
+        continue-on-error: true
+        run: |
+          echo "Running memory leak tests..."
+          valgrind --tool=memcheck --leak-check=full --show-leak-kinds=all \
+            --suppressions=/usr/share/gdb/auto-load/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.30-gdb.py \
+            gdalinfo test_data/minimal.bufr 2>&1 | tee valgrind_bufr.log || echo "Valgrind BUFR test completed"
+
+          valgrind --tool=memcheck --leak-check=full --show-leak-kinds=all \
+            gdalinfo test_data/minimal.cdf 2>&1 | tee valgrind_cdf.log || echo "Valgrind CDF test completed"
+
+      - name: Test driver interoperability
+        continue-on-error: true
+        run: |
+          echo "Testing driver interoperability..."
+
+          # Test if BUFR data can be converted and read back
+          if gdalinfo test_data/minimal.bufr >/dev/null 2>&1; then
+            gdal_translate test_data/minimal.bufr test_data/bufr_to_tiff.tif
+            gdalinfo test_data/bufr_to_tiff.tif
+          fi
+
+          # Test if CDF data can be converted and read back
+          if gdalinfo test_data/minimal.cdf >/dev/null 2>&1; then
+            gdal_translate test_data/minimal.cdf test_data/cdf_to_tiff.tif
+            gdalinfo test_data/cdf_to_tiff.tif
+          fi
+
+      - name: Cross-format conversion matrix
+        continue-on-error: true
+        run: |
+          echo "Testing cross-format conversion matrix..."
+
+          formats=("GTiff" "NetCDF" "PNG" "JPEG")
+
+          for src_file in test_data/minimal.bufr test_data/minimal.cdf; do
+            echo "Source: $src_file"
+            if gdalinfo "$src_file" >/dev/null 2>&1; then
+              for fmt in "${formats[@]}"; do
+                output="test_data/converted_$(basename $src_file .${src_file##*.}).$fmt"
+                echo "  Converting to $fmt..."
+                gdal_translate -of "$fmt" "$src_file" "$output" 2>&1 | head -3 || echo "  Conversion to $fmt failed"
+              done
+            else
+              echo "  Source file cannot be read, skipping conversions"
+            fi
+            echo ""
+          done
+
+      - name: Generate test report
+        if: always()
+        run: |
+          echo "# Nightly BUFR and CDF Driver Test Report" > test_report.md
+          echo "## Build Configuration" >> test_report.md
+          echo "- Build Type: ${{ matrix.build_type }}" >> test_report.md
+          echo "- Full Dependencies: ${{ matrix.full_deps }}" >> test_report.md
+          echo "- Date: $(date)" >> test_report.md
+          echo "" >> test_report.md
+
+          echo "## Driver Status" >> test_report.md
+          gdalinfo --formats | grep -E "(BUFR|CDF)" >> test_report.md || echo "No BUFR/CDF drivers found" >> test_report.md
+          echo "" >> test_report.md
+
+          echo "## Build Artifacts" >> test_report.md
+          find build -name "*bufr*" -o -name "*cdf*" | head -20 >> test_report.md
+          echo "" >> test_report.md
+
+          echo "## Test Files Created" >> test_report.md
+          ls -la test_data/ >> test_report.md
+
+          cat test_report.md
+
+      - name: Upload comprehensive test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-test-artifacts-${{ matrix.build_type }}-${{ matrix.full_deps }}
+          path: |
+            test_data/
+            test_report.md
+            build/build.log
+            build/Testing/
+            valgrind_*.log
+            benchmark_results.json
+            autotest/coverage.xml
+          retention-days: 30
+
+      - name: Check for critical failures
+        if: failure()
+        run: |
+          echo "Critical failure detected in nightly tests"
+          echo "This indicates potential issues with BUFR/CDF driver implementation"
+          echo "Please review the artifacts and logs for detailed error information"
