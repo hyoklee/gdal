@@ -88,7 +88,7 @@ class CDFDataset final: public GDALPamDataset
         static GDALDataset* Open(GDALOpenInfo* poOpenInfo);
         static int Identify(GDALOpenInfo* poOpenInfo);
 
-        virtual CPLErr GetGeoTransform(double* padfTransform) override;
+        virtual CPLErr GetGeoTransform(GDALGeoTransform& gt) const override;
         virtual const OGRSpatialReference* GetSpatialRef() const override;
         virtual char** GetMetadata(const char* pszDomain = "") override;
         virtual const char* GetMetadataItem(const char* pszName,
@@ -102,13 +102,12 @@ class CDFRasterBand final: public GDALPamRasterBand
         CDFVariable* m_poVariable;
 
     public:
-        CDFRasterBand(CDFDataset* poDS, int nBand, CDFVariable* poVar);
+        CDFRasterBand(CDFDataset* poParentDS, int nBandNum, CDFVariable* poVar);
         virtual ~CDFRasterBand();
 
         virtual CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void* pImage) override;
-        virtual GDALDataType GetRasterDataType() override;
         virtual double GetNoDataValue(int* pbSuccess = nullptr) override;
-        virtual const char* GetDescription() override;
+        virtual const char* GetDescription() const override;
 };
 
 void GDALRegister_CDF();

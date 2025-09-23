@@ -79,7 +79,7 @@ class BUFRDataset final: public GDALPamDataset
         static GDALDataset* Open(GDALOpenInfo* poOpenInfo);
         static int Identify(GDALOpenInfo* poOpenInfo);
 
-        CPLErr GetGeoTransform(double* padfTransform) override;
+        virtual CPLErr GetGeoTransform(GDALGeoTransform& gt) const override;
         virtual const OGRSpatialReference* GetSpatialRef() const override;
         virtual char** GetMetadata(const char* pszDomain = "") override;
         virtual const char* GetMetadataItem(const char* pszName,
@@ -96,7 +96,6 @@ class BUFRRasterBand final: public GDALPamRasterBand
         virtual ~BUFRRasterBand();
 
         virtual CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void* pImage) override;
-        GDALDataType GetRasterDataType() override;
         virtual double GetNoDataValue(int* pbSuccess = nullptr) override;
 };
 

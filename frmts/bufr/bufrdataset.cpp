@@ -47,7 +47,7 @@ int BUFRDataset::Identify(GDALOpenInfo* poOpenInfo)
     if (memcmp(poOpenInfo->pabyHeader, "BUFR", 4) == 0)
         return TRUE;
 
-    const char* pszExt = CPLGetExtensionSafe(poOpenInfo->pszFilename);
+    const char* pszExt = CPLGetExtensionSafe(poOpenInfo->pszFilename).c_str();
     if (EQUAL(pszExt, "bufr") || EQUAL(pszExt, "bfr"))
     {
         if (poOpenInfo->nHeaderBytes >= 4 &&
@@ -246,18 +246,15 @@ GDALDataset* BUFRDataset::Open(GDALOpenInfo* poOpenInfo)
     return poDS;
 }
 
-CPLErr BUFRDataset::GetGeoTransform(double* padfTransform)
+CPLErr BUFRDataset::GetGeoTransform(GDALGeoTransform& gt) const
 {
     if (m_bHasGeoTransform)
     {
-        memcpy(padfTransform, m_adfGeoTransform, 6 * sizeof(double));
+        memcpy(gt.data(), m_adfGeoTransform, 6 * sizeof(double));
         return CE_None;
     }
 
-    GDALGeoTransform geoTransform;
-    CPLErr result = GDALPamDataset::GetGeoTransform(geoTransform);
-    memcpy(padfTransform, geoTransform, 6 * sizeof(double));
-    return result;
+    return GDALPamDataset::GetGeoTransform(gt);
 }
 
 const OGRSpatialReference* BUFRDataset::GetSpatialRef() const
@@ -307,10 +304,6 @@ CPLErr BUFRRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void* pImage)
     return CE_None;
 }
 
-GDALDataType BUFRRasterBand::GetRasterDataType()
-{
-    return GDT_Float32;
-}
 
 double BUFRRasterBand::GetNoDataValue(int* pbSuccess)
 {

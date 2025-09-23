@@ -67,7 +67,7 @@ int CDFDataset::Identify(GDALOpenInfo* poOpenInfo)
     if (magic1 == CDF_MAGIC1 && magic2 == CDF_MAGIC2)
         return TRUE;
 
-    const char* pszExt = CPLGetExtension(poOpenInfo->pszFilename);
+    const char* pszExt = CPLGetExtensionSafe(poOpenInfo->pszFilename).c_str();
     if (EQUAL(pszExt, "cdf"))
     {
         if (poOpenInfo->nHeaderBytes >= 8 && magic1 == CDF_MAGIC1)
@@ -290,15 +290,15 @@ GDALDataset* CDFDataset::Open(GDALOpenInfo* poOpenInfo)
     return poDS;
 }
 
-CPLErr CDFDataset::GetGeoTransform(double* padfTransform)
+CPLErr CDFDataset::GetGeoTransform(GDALGeoTransform& gt) const
 {
     if (m_bHasGeoTransform)
     {
-        memcpy(padfTransform, m_adfGeoTransform, 6 * sizeof(double));
+        memcpy(gt.data(), m_adfGeoTransform, 6 * sizeof(double));
         return CE_None;
     }
 
-    return GDALPamDataset::GetGeoTransform(padfTransform);
+    return GDALPamDataset::GetGeoTransform(gt);
 }
 
 const OGRSpatialReference* CDFDataset::GetSpatialRef() const
@@ -319,13 +319,13 @@ const char* CDFDataset::GetMetadataItem(const char* pszName, const char* pszDoma
     return GDALPamDataset::GetMetadataItem(pszName, pszDomain);
 }
 
-CDFRasterBand::CDFRasterBand(CDFDataset* poDS, int nBand, CDFVariable* poVar) :
-    m_poParent(poDS), m_poVariable(poVar)
+CDFRasterBand::CDFRasterBand(CDFDataset* poParentDS, int nBandNum, CDFVariable* poVar) :
+    m_poParent(poParentDS), m_poVariable(poVar)
 {
-    poDataset = poDS;
-    nBand = nBand;
-    nRasterDataType = GDT_Float32;
-    nBlockXSize = poDS->nRasterXSize;
+    poDS = poParentDS;
+    nBand = nBandNum;
+    eDataType = GDT_Float32;
+    nBlockXSize = poParentDS->nRasterXSize;
     nBlockYSize = 1;
 }
 
@@ -348,37 +348,6 @@ CPLErr CDFRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void* pImage)
     return CE_None;
 }
 
-GDALDataType CDFRasterBand::GetRasterDataType()
-{
-    if (m_poVariable)
-    {
-        switch (m_poVariable->dataType)
-        {
-            case CDF_BYTE:
-            case CDF_INT1:
-                return GDT_Byte;
-            case CDF_INT2:
-                return GDT_Int16;
-            case CDF_INT4:
-                return GDT_Int32;
-            case CDF_UINT1:
-                return GDT_Byte;
-            case CDF_UINT2:
-                return GDT_UInt16;
-            case CDF_UINT4:
-                return GDT_UInt32;
-            case CDF_REAL4:
-            case CDF_FLOAT:
-                return GDT_Float32;
-            case CDF_REAL8:
-            case CDF_DOUBLE:
-                return GDT_Float64;
-            default:
-                return GDT_Float32;
-        }
-    }
-    return GDT_Float32;
-}
 
 double CDFRasterBand::GetNoDataValue(int* pbSuccess)
 {
@@ -387,7 +356,7 @@ double CDFRasterBand::GetNoDataValue(int* pbSuccess)
     return -999.0;
 }
 
-const char* CDFRasterBand::GetDescription()
+const char* CDFRasterBand::GetDescription() const
 {
     if (m_poVariable)
         return m_poVariable->name.c_str();
