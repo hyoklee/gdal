@@ -44,8 +44,6 @@ constexpr const char *GDAL_ARG_NAME_OUTPUT_OPEN_OPTION = "output-open-option";
 
 constexpr const char *GDAL_ARG_NAME_BAND = "band";
 
-constexpr const char *GDAL_ARG_NAME_QUIET = "quiet";
-
 //! @cond Doxygen_Suppress
 struct GDALAlgorithmArgHS
 {
@@ -2668,6 +2666,27 @@ bool GDALAlgorithm::ProcessDatasetArg(GDALAlgorithmArg *arg,
                 m_oMapDatasetNameToDataset.erase(oIter);
             }
 
+            // A bit of a hack for situations like 'gdal raster clip --like "PG:..."'
+            // where the PG: dataset will be first opened with the PostGISRaster
+            // driver whereas the PostgreSQL (vector) one is actually wanted.
+            if (poDS->GetRasterCount() == 0 && (flags & GDAL_OF_RASTER) != 0 &&
+                (flags & GDAL_OF_VECTOR) != 0 && aosAllowedDrivers.empty() &&
+                aosOpenOptions.empty())
+            {
+                auto poDrv = poDS->GetDriver();
+                if (poDrv && EQUAL(poDrv->GetDescription(), "PostGISRaster"))
+                {
+                    // Retry with PostgreSQL (vector) driver
+                    std::unique_ptr<GDALDataset> poTmpDS(GDALDataset::Open(
+                        osDatasetName.c_str(), flags & ~GDAL_OF_RASTER));
+                    if (poTmpDS)
+                    {
+                        poDS->ReleaseRef();
+                        poDS = poTmpDS.release();
+                    }
+                }
+            }
+
             if (assignToOutputArg)
             {
                 // Avoid opening twice the same datasource if it is both
@@ -4151,7 +4170,7 @@ bool GDALAlgorithm::ValidateFormat(const GDALAlgorithmArg &arg,
                         GDALGetMessageAboutMissingPluginDriver(poMissingDriver);
                     ReportError(CE_Failure, CPLE_AppDefined,
                                 "Invalid value for argument '%s'. Driver '%s' "
-                                "not found but it known. However plugin %s",
+                                "not found but is known. However plugin %s",
                                 arg.GetName().c_str(), val.c_str(),
                                 msg.c_str());
                 }
@@ -6493,6 +6512,7 @@ GDALAlgorithm::GetAutoComplete(std::vector<std::string> &args,
     }
     if (curAlg != this)
     {
+        curAlg->m_calledFromCommandLine = m_calledFromCommandLine;
         return curAlg->GetAutoComplete(args, lastWordIsComplete,
                                        /* showAllOptions = */ false);
     }
@@ -7073,7 +7093,7 @@ GDALAlgorithmArgType GDALAlgorithmArgGetType(GDALAlgorithmArgH hArg)
 /** Return the description of an argument.
  *
  * @param hArg Handle to an argument. Must NOT be null.
- * @return argument descriptioin whose lifetime is bound to hArg and which must not
+ * @return argument description whose lifetime is bound to hArg and which must not
  * be freed.
  * @since 3.11
  */

@@ -39,6 +39,8 @@ General
    gdal_syntax
    migration_guide_to_gdal_cli
    gdal_bash_completion
+   gdal_cli_from_c
+   gdal_cli_from_cpp
    gdal_cli_from_python
    gdal_cli_gdalg
 
@@ -48,6 +50,8 @@ General
     - :ref:`gdal_syntax`: Syntax for commands of ``gdal`` program
     - :ref:`migration_guide_to_gdal_cli`: Migration guide to ``gdal`` command line interface
     - :ref:`gdal_bash_completion`: Bash completion for ``gdal``
+    - :ref:`gdal_cli_from_c`: How to use ``gdal`` CLI algorithms from C
+    - :ref:`gdal_cli_from_cpp`: How to use ``gdal`` CLI algorithms from C++
     - :ref:`gdal_cli_from_python`: How to use ``gdal`` CLI algorithms from Python
     - :ref:`gdal_cli_gdalg`: .gdalg files to replay serialized ``gdal`` commands
 
@@ -79,11 +83,11 @@ Raster commands
    gdal_raster_info
    gdal_raster_as_features
    gdal_raster_aspect
+   gdal_raster_blend
    gdal_raster_calc
    gdal_raster_clean_collar
    gdal_raster_clip
    gdal_raster_color_map
-   gdal_raster_color_merge
    gdal_raster_contour
    gdal_raster_compare
    gdal_raster_convert
@@ -132,11 +136,11 @@ Raster commands
     - :ref:`gdal_raster_info`: Get information on a raster dataset
     - :reF:`gdal_raster_as_features`: Create features representing raster pixels
     - :ref:`gdal_raster_aspect`: Generate an aspect map.
+    - :ref:`gdal_raster_blend`: Blend/compose two raster datasets
     - :ref:`gdal_raster_calc`: Perform raster algebra
     - :ref:`gdal_raster_clean_collar`: Clean the collar of a raster dataset, removing noise
     - :ref:`gdal_raster_clip`: Clip a raster dataset
     - :ref:`gdal_raster_color_map`: Use a grayscale raster to replace the intensity of a RGB/RGBA dataset
-    - :ref:`gdal_raster_color_merge`: Replace the color value of a RGB/RGBA dataset by the one of a grayscale raster
     - :ref:`gdal_raster_compare`: Compare two raster datasets
     - :ref:`gdal_raster_convert`: Convert a raster dataset
     - :ref:`gdal_raster_contour`: Builds vector contour lines from a raster elevation model
@@ -192,7 +196,6 @@ Vector commands
    gdal_vector_check_geometry
    gdal_vector_clean_coverage
    gdal_vector_clip
-   gdal_vector_change_field_type
    gdal_vector_concat
    gdal_vector_convert
    gdal_vector_edit
@@ -210,6 +213,7 @@ Vector commands
    gdal_vector_reproject
    gdal_vector_select
    gdal_vector_segmentize
+   gdal_vector_set_field_type
    gdal_vector_set_geom_type
    gdal_vector_simplify
    gdal_vector_simplify_coverage
@@ -226,7 +230,6 @@ Vector commands
     - :ref:`gdal_vector_check_geometry`: Check a dataset for invalid or non-simple geometries
     - :ref:`gdal_vector_clean_coverage`: Remove gaps and overlaps in a polygon dataset
     - :ref:`gdal_vector_clip`: Clip a vector dataset
-    - :ref:`gdal_vector_change_field_type`: Change the type of a field of a vector dataset
     - :ref:`gdal_vector_concat`: Concatenate vector datasets
     - :ref:`gdal_vector_convert`: Convert a vector dataset
     - :ref:`gdal_vector_edit`: Edit metadata of a vector dataset
@@ -243,6 +246,7 @@ Vector commands
     - :ref:`gdal_vector_reproject`: Reproject a vector dataset
     - :ref:`gdal_vector_segmentize`: Segmentize geometries of a vector dataset
     - :ref:`gdal_vector_select`: Select a subset of fields from a vector dataset.
+    - :ref:`gdal_vector_set_field_type`: Modify the type of a field of a vector dataset
     - :ref:`gdal_vector_set_geom_type`: Modify the geometry type of a vector dataset
     - :ref:`gdal_vector_simplify`: Simplify geometries of a vector dataset
     - :ref:`gdal_vector_simplify_coverage`: Simplify shared boundaries of a polygonal vector dataset

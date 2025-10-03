@@ -46,11 +46,11 @@ target_sources(appslib PRIVATE
   gdalalg_raster_info.cpp
   gdalalg_raster_as_features.cpp
   gdalalg_raster_aspect.cpp
+  gdalalg_raster_blend.cpp
   gdalalg_raster_calc.cpp
   gdalalg_raster_clean_collar.cpp
   gdalalg_raster_clip.cpp
   gdalalg_raster_color_map.cpp
-  gdalalg_raster_color_merge.cpp
   gdalalg_raster_compare.cpp
   gdalalg_raster_convert.cpp
   gdalalg_raster_create.cpp
@@ -94,7 +94,6 @@ target_sources(appslib PRIVATE
   gdalalg_tee.cpp
   gdalalg_vector.cpp
   gdalalg_vector_info.cpp
-  gdalalg_vector_change_field_type.cpp
   gdalalg_vector_check_coverage.cpp
   gdalalg_vector_check_geometry.cpp
   gdalalg_vector_clip.cpp
@@ -128,6 +127,7 @@ target_sources(appslib PRIVATE
   gdalalg_vector_partition.cpp
   gdalalg_vector_reproject.cpp
   gdalalg_vector_select.cpp
+  gdalalg_vector_set_field_type.cpp
   gdalalg_vector_sql.cpp
   gdalalg_vector_write.cpp
   gdalalg_vsi.cpp

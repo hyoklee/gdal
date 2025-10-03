@@ -382,6 +382,7 @@ ClassificationCode
 Clayers
 CleanTimeout
 clearerr
+CLI
 clib
 clipdst
 clipdstlayer
@@ -531,6 +532,7 @@ cvs
 Cxx
 Cygwin
 dall
+Damerau
 dan
 DanB
 DanielM
@@ -998,6 +1000,8 @@ gdalabstractbandblockcache
 gdaladdo
 gdalalljni
 gdalallregister
+GDALArgDatasetValue
+GDALArgDatasetValue
 gdalarraybandblockcache
 gdalasyncread
 GDALAsyncReader
@@ -1587,6 +1591,7 @@ leftfov
 LegalConstraints
 len
 Leveller
+Levenshtein
 lf
 libaom
 libarchive
@@ -1744,6 +1749,7 @@ mapbox
 Mapbox
 Maperitive
 mapFieldType
+Mapfile
 mapinfo
 Mapinfo
 maplist
@@ -1809,6 +1815,7 @@ Miara
 MiB
 Microstation
 mif
+MikeS
 millimetric
 mimetype
 miniconda
@@ -2289,6 +2296,7 @@ outptr
 outputBounds
 outputer
 outputSchema
+outString
 Oversample
 OverviewCount
 ovf
@@ -3142,6 +3150,8 @@ Struve
 styleurl
 styleurls
 su
+subalgorithm
+subalgorithms
 subarcs
 subarray
 subbottom
