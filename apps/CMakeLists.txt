@@ -91,6 +91,7 @@ target_sources(appslib PRIVATE
   gdalalg_raster_update.cpp
   gdalalg_raster_viewshed.cpp
   gdalalg_raster_write.cpp
+  gdalalg_raster_zonal_stats.cpp
   gdalalg_tee.cpp
   gdalalg_vector.cpp
   gdalalg_vector_info.cpp
@@ -106,6 +107,7 @@ target_sources(appslib PRIVATE
   gdalalg_vector_read.cpp
   gdalalg_vector_filter.cpp
   gdalalg_vector_geom.cpp
+  gdalalg_vector_limit.cpp
   gdalalg_vector_set_geom_type.cpp
   gdalalg_vector_explode_collections.cpp
   gdalalg_vector_make_valid.cpp

@@ -461,6 +461,8 @@ connectedness
 const
 constexpr
 contensts
+contextlib
+contextmanager
 ContourOptions
 Contrarty
 conv
@@ -947,6 +949,7 @@ fpRawL
 fprintf
 fpSource
 fputc
+frac
 franca
 france
 FrankW
@@ -1329,6 +1332,7 @@ hMaskBand
 hMutex
 hNewSubGeom
 hObject
+hOutDS
 hobu
 hoc
 holded
@@ -1382,6 +1386,7 @@ hypercubes
 hyperspectral
 hypsometric
 Hypsometric
+hZonesDS
 iAxis
 iBand
 iChild
@@ -1787,6 +1792,7 @@ MaxX
 maxy
 maxY
 MaxY
+maxz
 MaxZ
 mbtiles
 mbtowc
@@ -1837,6 +1843,7 @@ minX
 miny
 minY
 MinY
+minz
 MinZ
 Mipmaps
 MiraD
@@ -2526,6 +2533,7 @@ poFeatureDefn
 poFieldDefn
 poFilterGeom
 poGCP
+poGeom
 poGeomFieldDefn
 PointFromColumns
 PointOnSurface
@@ -3112,6 +3120,7 @@ StartTransaction
 stat'ed
 stateful
 stderr
+stdev
 stdin
 stdout
 stealInteriorRing
@@ -3604,6 +3613,8 @@ webmercator
 WebP
 WEBP
 webviewer
+weighted_frac
+weighted_stdev
 wellformedness
 Westervelt
 westing
