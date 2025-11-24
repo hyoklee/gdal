@@ -711,8 +711,10 @@ int GDALGeoPackageDataset::GetSrsId(const OGRSpatialReference *poSRSIn)
             CPLSPrintf(" AND epoch = %.17g", poSRSIn->GetCoordinateEpoch());
     }
 
-    if (!(poSRS->IsGeographic() && poSRS->GetAxesCount() == 3))
+    if (!(poSRS->IsGeographic() && poSRS->GetAxesCount() == 3) &&
+        !poSRS->IsDerivedGeographic())
     {
+        CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
         char *pszTmp = nullptr;
         poSRS->exportToWkt(&pszTmp, apszOptionsWkt1);
         pszWKT1.reset(pszTmp);
@@ -722,6 +724,7 @@ int GDALGeoPackageDataset::GetSrsId(const OGRSpatialReference *poSRSIn)
         }
     }
     {
+        CPLErrorStateBackuper oBackuper(CPLQuietErrorHandler);
         char *pszTmp = nullptr;
         poSRS->exportToWkt(&pszTmp, apszOptionsWkt2_2015);
         pszWKT2_2015.reset(pszTmp);
@@ -7354,8 +7357,12 @@ int GDALGeoPackageDataset::TestCapability(const char *pszCap) const
              EQUAL(pszCap, GDsCAddRelationship) ||
              EQUAL(pszCap, GDsCDeleteRelationship) ||
              EQUAL(pszCap, GDsCUpdateRelationship) ||
-             EQUAL(pszCap, ODsCAddFieldDomain))
+             EQUAL(pszCap, ODsCAddFieldDomain) ||
+             EQUAL(pszCap, ODsCUpdateFieldDomain) ||
+             EQUAL(pszCap, ODsCDeleteFieldDomain))
+    {
         return GetUpdate();
+    }
 
     return OGRSQLiteBaseDataSource::TestCapability(pszCap);
 }
@@ -7399,6 +7406,19 @@ OGRLayer *GDALGeoPackageDataset::ExecuteSQL(const char *pszSQLCommand,
     CPLString osSQLCommand(pszSQLCommand);
     if (!osSQLCommand.empty() && osSQLCommand.back() == ';')
         osSQLCommand.pop_back();
+
+    if (osSQLCommand.ifind("AsGPB(ST_") != std::string::npos ||
+        osSQLCommand.ifind("AsGPB( ST_") != std::string::npos)
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "Use of AsGPB(ST_xxx(...)) found in \"%s\". Since GDAL 3.13, "
+                 "ST_xxx() functions return a GeoPackage geometry when used "
+                 "with a GeoPackage connection, and the use of AsGPB() is no "
+                 "longer needed. It is here automatically removed",
+                 osSQLCommand.c_str());
+        osSQLCommand.replaceAll("AsGPB(ST_", "(ST_");
+        osSQLCommand.replaceAll("AsGPB( ST_", "(ST_");
+    }
 
     if (pszDialect == nullptr || !EQUAL(pszDialect, "DEBUG"))
     {
@@ -9340,13 +9360,12 @@ void GDALGeoPackageDataset::InstallSQLFunctions()
 {
     InitSpatialite();
 
-    // Enable SpatiaLite 4.3 "amphibious" mode, i.e. that SpatiaLite functions
-    // that take geometries will accept GPKG encoded geometries without
+    // Enable SpatiaLite 4.3 GPKG mode, i.e. that SpatiaLite functions
+    // that take geometries will accept and return GPKG encoded geometries without
     // explicit conversion.
     // Use sqlite3_exec() instead of SQLCommand() since we don't want verbose
     // error.
-    sqlite3_exec(hDB, "SELECT EnableGpkgAmphibiousMode()", nullptr, nullptr,
-                 nullptr);
+    sqlite3_exec(hDB, "SELECT EnableGpkgMode()", nullptr, nullptr, nullptr);
 
     /* Used by RTree Spatial Index Extension */
     sqlite3_create_function(hDB, "ST_MinX", 1, UTF8_INNOCUOUS, nullptr,
@@ -10178,6 +10197,70 @@ bool GDALGeoPackageDataset::AddFieldDomain(
 
     m_oMapFieldDomains[domainName] = std::move(domain);
     return true;
+}
+
+/************************************************************************/
+/*                        UpdateFieldDomain()                           */
+/************************************************************************/
+
+bool GDALGeoPackageDataset::UpdateFieldDomain(
+    std::unique_ptr<OGRFieldDomain> &&domain, std::string &failureReason)
+{
+    const std::string domainName(domain->GetName());
+    if (eAccess != GA_Update)
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "UpdateFieldDomain() not supported on read-only dataset");
+        return false;
+    }
+
+    if (GetFieldDomain(domainName) == nullptr)
+    {
+        failureReason = "The domain should already exist to be updated";
+        return false;
+    }
+
+    bool bRet = SoftStartTransaction() == OGRERR_NONE;
+    if (bRet)
+    {
+        bRet = DeleteFieldDomain(domainName, failureReason) &&
+               AddFieldDomain(std::move(domain), failureReason);
+        if (bRet)
+            bRet = SoftCommitTransaction() == OGRERR_NONE;
+        else
+            SoftRollbackTransaction();
+    }
+    return bRet;
+}
+
+/************************************************************************/
+/*                         DeleteFieldDomain()                          */
+/************************************************************************/
+
+bool GDALGeoPackageDataset::DeleteFieldDomain(const std::string &name,
+                                              std::string &failureReason)
+{
+    if (eAccess != GA_Update)
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "DeleteFieldDomain() not supported on read-only dataset");
+        return false;
+    }
+    if (GetFieldDomain(name) == nullptr)
+    {
+        failureReason = "Domain does not exist";
+        return false;
+    }
+
+    char *pszSQL =
+        sqlite3_mprintf("DELETE FROM gpkg_data_column_constraints WHERE "
+                        "constraint_name IN ('%q', '_%q_domain_description')",
+                        name.c_str(), name.c_str());
+    const bool ok = SQLCommand(hDB, pszSQL) == OGRERR_NONE;
+    sqlite3_free(pszSQL);
+    if (ok)
+        m_oMapFieldDomains.erase(name);
+    return ok;
 }
 
 /************************************************************************/

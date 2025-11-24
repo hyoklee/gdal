@@ -1950,9 +1950,12 @@ bool GDALAlgorithm::ParseArgument(
             }
             else
             {
-                const CPLStringList aosTokens(CSLTokenizeString2(
-                    value.c_str(), ",",
-                    CSLT_HONOURSTRINGS | CSLT_PRESERVEQUOTES));
+                const CPLStringList aosTokens(
+                    arg->GetPackedValuesAllowed()
+                        ? CSLTokenizeString2(value.c_str(), ",",
+                                             CSLT_HONOURSTRINGS |
+                                                 CSLT_STRIPLEADSPACES)
+                        : CSLAddString(nullptr, value.c_str()));
                 for (const char *v : aosTokens)
                 {
                     valueVector.push_back(GDALArgDatasetValue(v));
@@ -3130,6 +3133,16 @@ bool GDALAlgorithm::IsKnownOutputRelatedBooleanArgName(std::string_view osName)
 }
 
 /************************************************************************/
+/*                      GDALAlgorithm::HasOutputString()                */
+/************************************************************************/
+
+bool GDALAlgorithm::HasOutputString() const
+{
+    auto outputStringArg = GetArg(GDAL_ARG_NAME_OUTPUT_STRING);
+    return outputStringArg && outputStringArg->IsOutput();
+}
+
+/************************************************************************/
 /*                      GDALAlgorithm::GetArg()                         */
 /************************************************************************/
 
@@ -3613,12 +3626,14 @@ GDALInConstructionAlgorithmArg &GDALAlgorithm::AddInputDatasetArg(
     std::vector<GDALArgDatasetValue> *pValue, GDALArgDatasetType type,
     bool positionalAndRequired, const char *helpMessage)
 {
-    auto &arg = AddArg(
-        GDAL_ARG_NAME_INPUT, 'i',
-        MsgOrDefault(helpMessage,
-                     CPLSPrintf("Input %s datasets",
-                                GDALAlgorithmArgDatasetTypeName(type).c_str())),
-        pValue, type);
+    auto &arg =
+        AddArg(GDAL_ARG_NAME_INPUT, 'i',
+               MsgOrDefault(
+                   helpMessage,
+                   CPLSPrintf("Input %s datasets",
+                              GDALAlgorithmArgDatasetTypeName(type).c_str())),
+               pValue, type)
+            .SetPackedValuesAllowed(false);
     if (positionalAndRequired)
         arg.SetPositional().SetRequired();
 
@@ -4489,6 +4504,84 @@ GDALAlgorithm::AddLayerNameArg(std::string *pValue, const char *helpMessage)
 }
 
 /************************************************************************/
+/*                    GDALAlgorithm::AddArrayNameArg()                  */
+/************************************************************************/
+
+GDALInConstructionAlgorithmArg &
+GDALAlgorithm::AddArrayNameArg(std::string *pValue, const char *helpMessage)
+{
+    return AddArg("array", 0, MsgOrDefault(helpMessage, _("Array name")),
+                  pValue)
+        .SetAutoCompleteFunction([this](const std::string &)
+                                 { return AutoCompleteArrayName(); });
+}
+
+/************************************************************************/
+/*                    GDALAlgorithm::AddArrayNameArg()                  */
+/************************************************************************/
+
+GDALInConstructionAlgorithmArg &
+GDALAlgorithm::AddArrayNameArg(std::vector<std::string> *pValue,
+                               const char *helpMessage)
+{
+    return AddArg("array", 0, MsgOrDefault(helpMessage, _("Array name(s)")),
+                  pValue)
+        .SetAutoCompleteFunction([this](const std::string &)
+                                 { return AutoCompleteArrayName(); });
+}
+
+/************************************************************************/
+/*                  GDALAlgorithm::AutoCompleteArrayName()              */
+/************************************************************************/
+
+std::vector<std::string> GDALAlgorithm::AutoCompleteArrayName() const
+{
+    std::vector<std::string> ret;
+    std::string osDSName;
+    auto inputArg = GetArg(GDAL_ARG_NAME_INPUT);
+    if (inputArg && inputArg->GetType() == GAAT_DATASET_LIST)
+    {
+        auto &inputDatasets = inputArg->Get<std::vector<GDALArgDatasetValue>>();
+        if (!inputDatasets.empty())
+        {
+            osDSName = inputDatasets[0].GetName();
+        }
+    }
+    else if (inputArg && inputArg->GetType() == GAAT_DATASET)
+    {
+        auto &inputDataset = inputArg->Get<GDALArgDatasetValue>();
+        osDSName = inputDataset.GetName();
+    }
+
+    if (!osDSName.empty())
+    {
+        CPLStringList aosAllowedDrivers;
+        const auto ifArg = GetArg(GDAL_ARG_NAME_INPUT_FORMAT);
+        if (ifArg && ifArg->GetType() == GAAT_STRING_LIST)
+            aosAllowedDrivers =
+                CPLStringList(ifArg->Get<std::vector<std::string>>());
+
+        CPLStringList aosOpenOptions;
+        const auto ooArg = GetArg(GDAL_ARG_NAME_OPEN_OPTION);
+        if (ooArg && ooArg->GetType() == GAAT_STRING_LIST)
+            aosOpenOptions =
+                CPLStringList(ooArg->Get<std::vector<std::string>>());
+
+        if (auto poDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(
+                osDSName.c_str(), GDAL_OF_MULTIDIM_RASTER,
+                aosAllowedDrivers.List(), aosOpenOptions.List(), nullptr)))
+        {
+            if (auto poRG = poDS->GetRootGroup())
+            {
+                ret = poRG->GetMDArrayFullNamesRecursive();
+            }
+        }
+    }
+
+    return ret;
+}
+
+/************************************************************************/
 /*                    GDALAlgorithm::AddMemorySizeArg()                  */
 /************************************************************************/
 
@@ -4519,8 +4612,9 @@ GDALAlgorithm::AddMemorySizeArg(size_t *pValue, std::string *pStrValue,
                 }
                 if constexpr (sizeof(std::uint64_t) > sizeof(size_t))
                 {
+                    // -1 to please CoverityScan
                     if (static_cast<std::uint64_t>(nBytes) >
-                        std::numeric_limits<size_t>::max())
+                        std::numeric_limits<size_t>::max() - 1U)
                     {
                         ReportError(CE_Failure, CPLE_AppDefined,
                                     "Memory size %s is too large.",
@@ -4610,8 +4704,7 @@ GDALAlgorithm::AddGeometryTypeArg(std::string *pValue, const char *helpMessage)
 
 /* static */
 void GDALAlgorithm::SetAutoCompleteFunctionForLayerName(
-    GDALInConstructionAlgorithmArg &layerArg,
-    GDALInConstructionAlgorithmArg &datasetArg)
+    GDALInConstructionAlgorithmArg &layerArg, GDALAlgorithmArg &datasetArg)
 {
     CPLAssert(datasetArg.GetType() == GAAT_DATASET ||
               datasetArg.GetType() == GAAT_DATASET_LIST);

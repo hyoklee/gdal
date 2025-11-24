@@ -173,7 +173,6 @@ GDALDataType CPL_STDCALL GDALDataTypeUnion(GDALDataType eType1,
  * @param bComplex if the value is complex
  *
  * @return a data type able to express eDT and dfValue.
- * @since GDAL 2.3
  */
 GDALDataType CPL_STDCALL GDALDataTypeUnionWithValue(GDALDataType eDT,
                                                     double dfValue,
@@ -252,7 +251,6 @@ static int GetMinBitsForValue(double dValue)
  * @param bComplex if complex values are necessary
  *
  * @return a best fit GDALDataType for supporting the requirements
- * @since GDAL 2.3
  */
 GDALDataType CPL_STDCALL GDALFindDataType(int nBits, int bSigned, int bFloating,
                                           int bComplex)
@@ -344,7 +342,6 @@ GDALDataType CPL_STDCALL GDALFindDataType(int nBits, int bSigned, int bFloating,
  * @param bComplex is the value complex
  *
  * @return a best fit GDALDataType for supporting the value
- * @since GDAL 2.3
  */
 GDALDataType CPL_STDCALL GDALFindDataTypeForValue(double dValue, int bComplex)
 {
@@ -507,7 +504,6 @@ int CPL_STDCALL GDALDataTypeIsComplex(GDALDataType eDataType)
  *
  * @return TRUE if the passed type is floating (one of GDT_Float32, GDT_Float16,
  * GDT_Float64, GDT_CFloat16, GDT_CFloat32, GDT_CFloat64)
- * @since GDAL 2.3
  */
 
 int CPL_STDCALL GDALDataTypeIsFloating(GDALDataType eDataType)
@@ -550,7 +546,6 @@ int CPL_STDCALL GDALDataTypeIsFloating(GDALDataType eDataType)
  *
  * @return TRUE if the passed type is integer (one of GDT_Byte, GDT_Int16,
  * GDT_UInt16, GDT_Int32, GDT_UInt32, GDT_CInt16, GDT_CInt32).
- * @since GDAL 2.3
  */
 
 int CPL_STDCALL GDALDataTypeIsInteger(GDALDataType eDataType)
@@ -593,7 +588,6 @@ int CPL_STDCALL GDALDataTypeIsInteger(GDALDataType eDataType)
  * \brief Is data type signed?
  *
  * @return TRUE if the passed type is signed.
- * @since GDAL 2.3
  */
 
 int CPL_STDCALL GDALDataTypeIsSigned(GDALDataType eDataType)
@@ -637,7 +631,6 @@ int CPL_STDCALL GDALDataTypeIsSigned(GDALDataType eDataType)
  * @param eTypeFrom input datatype
  * @param eTypeTo output datatype
  * @return TRUE if conversion from eTypeFrom to eTypeTo potentially lossy.
- * @since GDAL 2.3
  */
 
 int CPL_STDCALL GDALDataTypeIsConversionLossy(GDALDataType eTypeFrom,
@@ -853,7 +846,6 @@ static inline void ClampAndRound(double &dfValue, bool &bClamped,
  * been made, or NULL
  *
  * @return adjusted value
- * @since GDAL 2.1
  */
 
 double GDALAdjustValueToDataType(GDALDataType eDT, double dfValue,
@@ -1393,7 +1385,6 @@ const char *GDALGetColorInterpretationName(GDALColorInterp eInterp)
  *
  * @return GDAL color interpretation.
  *
- * @since GDAL 1.7.0
  */
 
 GDALColorInterp GDALGetColorInterpretationByName(const char *pszName)
@@ -3006,7 +2997,7 @@ const char *CPL_STDCALL GDALVersionInfo(const char *pszRequest)
     else  // --version
     {
         osVersionInfo = "GDAL " GDAL_RELEASE_NAME;
-        if constexpr (GDAL_RELEASE_NICKNAME[0])
+        if constexpr (GDAL_RELEASE_NICKNAME[0] != '\0')
         {
             osVersionInfo += " \"" GDAL_RELEASE_NICKNAME "\"";
         }
@@ -3127,10 +3118,10 @@ double CPL_STDCALL GDALDecToPackedDMS(double dfDec)
  * given in TL, TR, BR, BL order.  So when using this to get a geotransform
  * from 4 corner coordinates, pass them in this order.
  *
- * Starting with GDAL 2.2.2, if bApproxOK = FALSE, the
+ * If bApproxOK = FALSE, the
  * GDAL_GCPS_TO_GEOTRANSFORM_APPROX_OK configuration option will be read. If
  * set to YES, then bApproxOK will be overridden with TRUE.
- * Starting with GDAL 2.2.2, when exact fit is asked, the
+ * When exact fit is asked, the
  * GDAL_GCPS_TO_GEOTRANSFORM_APPROX_THRESHOLD configuration option can be set to
  * give the maximum error threshold in pixel. The default is 0.25.
  *
@@ -4719,7 +4710,6 @@ CPL_C_START
  * @param nXSize raster width
  * @param nYSize raster height
  *
- * @since GDAL 1.7.0
  */
 int GDALCheckDatasetDimensions(int nXSize, int nYSize)
 {
@@ -4742,7 +4732,6 @@ int GDALCheckDatasetDimensions(int nXSize, int nYSize)
  * @param nBands the band count
  * @param bIsZeroAllowed TRUE if band count == 0 is allowed
  *
- * @since GDAL 1.7.0
  */
 
 int GDALCheckBandCount(int nBands, int bIsZeroAllowed)
@@ -4828,8 +4817,6 @@ void GDALSerializeGCPListToXML(CPLXMLNode *psParentNode,
 
         CPLSetXMLValue(psXMLGCP, "#Y", oFmt.Printf("%.12E", gcp.Y()));
 
-        /* Note: GDAL 1.10.1 and older generated #GCPZ, but could not read it
-         * back */
         if (gcp.Z() != 0.0)
             CPLSetXMLValue(psXMLGCP, "#Z", oFmt.Printf("%.12E", gcp.Z()));
     }
@@ -5868,11 +5855,23 @@ bool GDALGeoTransform::Apply(const OGREnvelope &env,
     Apply(env.MinX, env.MinY, &dfLeft, &dfBottom);
     Apply(env.MaxX, env.MaxY, &dfRight, &dfTop);
 
-    dfTop = std::floor(dfTop);
-    dfBottom = std::ceil(dfBottom);
-    dfLeft = std::floor(dfLeft);
-    dfRight = std::ceil(dfRight);
+    if (dfLeft > dfRight)
+        std::swap(dfLeft, dfRight);
+    if (dfTop > dfBottom)
+        std::swap(dfTop, dfBottom);
 
+    constexpr double EPSILON = 1e-5;
+    dfTop = std::floor(dfTop + EPSILON);
+    dfBottom = std::ceil(dfBottom - EPSILON);
+    dfLeft = std::floor(dfLeft + EPSILON);
+    dfRight = std::ceil(dfRight - EPSILON);
+
+    if (!(dfLeft >= INT_MIN && dfLeft <= INT_MAX &&
+          dfRight - dfLeft <= INT_MAX && dfTop >= INT_MIN && dfTop <= INT_MAX &&
+          dfBottom - dfLeft <= INT_MAX))
+    {
+        return false;
+    }
     window.nXOff = static_cast<int>(dfLeft);
     window.nXSize = static_cast<int>(dfRight - dfLeft);
     window.nYOff = static_cast<int>(dfTop);
@@ -5896,6 +5895,11 @@ bool GDALGeoTransform::Apply(const GDALRasterWindow &window,
 
     Apply(dfLeft, dfBottom, &env.MinX, &env.MinY);
     Apply(dfRight, dfTop, &env.MaxX, &env.MaxY);
+
+    if (env.MaxX < env.MinX)
+        std::swap(env.MinX, env.MaxX);
+    if (env.MaxY < env.MinY)
+        std::swap(env.MinY, env.MaxY);
 
     return true;
 }

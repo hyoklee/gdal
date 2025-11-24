@@ -215,7 +215,7 @@ GDALRasterBand::~GDALRasterBand()
  * pData to the start of the next. If defaulted (0) the size of the datatype
  * eBufType * nBufXSize is used.
  *
- * @param psExtraArg (new in GDAL 2.0) pointer to a GDALRasterIOExtraArg
+ * @param psExtraArg Pointer to a GDALRasterIOExtraArg
  * structure with additional arguments to specify resampling and progress
  * callback, or NULL for default behavior. The GDAL_RASTERIO_RESAMPLING
  * configuration option can also be defined to override the default resampling
@@ -316,7 +316,7 @@ GDALRasterBand::~GDALRasterBand()
  * pData to the start of the next. If defaulted (0) the size of the datatype
  * eBufType * nBufXSize is used.
  *
- * @param[in] psExtraArg (new in GDAL 2.0) pointer to a GDALRasterIOExtraArg
+ * @param[in] psExtraArg Pointer to a GDALRasterIOExtraArg
  * structure with additional arguments to specify resampling and progress
  * callback, or NULL for default behavior. The GDAL_RASTERIO_RESAMPLING
  * configuration option can also be defined to override the default resampling
@@ -508,7 +508,6 @@ CPLErr CPL_STDCALL GDALRasterIO(GDALRasterBandH hBand, GDALRWFlag eRWFlag,
  * \brief Read/write a region of image data for this band.
  *
  * @see GDALRasterBand::RasterIO()
- * @since GDAL 2.0
  */
 
 CPLErr CPL_STDCALL GDALRasterIOEx(GDALRasterBandH hBand, GDALRWFlag eRWFlag,
@@ -1338,7 +1337,6 @@ bool GDALRasterBand::EmitErrorMessageIfWriteNotSupported(
  *
  * @return CE_None if the input parameters are valid, CE_Failure otherwise
  *
- * @since GDAL 2.2
  */
 CPLErr GDALRasterBand::GetActualBlockSize(int nXBlockOff, int nYBlockOff,
                                           int *pnXValid, int *pnYValid) const
@@ -2839,7 +2837,6 @@ CPLErr CPL_STDCALL GDALSetRasterNoDataValueAsUInt64(GDALRasterBandH hBand,
  * by the driver, CE_Failure is returned but no error message will have
  * been emitted.
  *
- * @since GDAL 2.1
  */
 
 CPLErr GDALRasterBand::DeleteNoDataValue()
@@ -2861,7 +2858,6 @@ CPLErr GDALRasterBand::DeleteNoDataValue()
  *
  * @see GDALRasterBand::DeleteNoDataValue()
  *
- * @since GDAL 2.1
  */
 
 CPLErr CPL_STDCALL GDALDeleteRasterNoDataValue(GDALRasterBandH hBand)
@@ -3485,7 +3481,6 @@ GDALRasterBandH CPL_STDCALL GDALGetRasterSampleOverview(GDALRasterBandH hBand,
  * \brief Fetch best sampling overview.
  *
  * @see GDALRasterBand::GetRasterSampleOverview()
- * @since GDAL 2.0
  */
 
 GDALRasterBandH CPL_STDCALL
@@ -3841,7 +3836,6 @@ CPLErr GDALRasterBand::SetUnitType(const char * /*pszNewValue*/)
  *
  * @see GDALRasterBand::SetUnitType()
  *
- * @since GDAL 1.8.0
  */
 
 CPLErr CPL_STDCALL GDALSetRasterUnitType(GDALRasterBandH hBand,
@@ -4851,7 +4845,6 @@ CPLErr CPL_STDCALL GDALGetRasterHistogram(GDALRasterBandH hBand, double dfMin,
  *
  * @see GDALRasterBand::GetHistogram()
  *
- * @since GDAL 2.0
  */
 
 CPLErr CPL_STDCALL GDALGetRasterHistogramEx(
@@ -5064,7 +5057,6 @@ CPLErr CPL_STDCALL GDALGetDefaultHistogram(GDALRasterBandH hBand,
  *
  * @see GDALRasterBand::GetDefaultHistogram()
  *
- * @since GDAL 2.0
  */
 
 CPLErr CPL_STDCALL
@@ -8268,6 +8260,26 @@ CPLErr GDALRasterBand::ComputeRasterMinMax(int bApproxOK, double *adfMinMax)
         }
     }
 
+    if (!bApproxOK &&
+        (eDataType == GDT_Int8 || eDataType == GDT_Int16 ||
+         eDataType == GDT_UInt32 || eDataType == GDT_Int32 ||
+         eDataType == GDT_UInt64 || eDataType == GDT_Int64 ||
+         eDataType == GDT_Float16 || eDataType == GDT_Float32 ||
+         eDataType == GDT_Float64) &&
+        !poMaskBand)
+    {
+        CPLErr eErr = ComputeRasterMinMaxLocation(
+            &adfMinMax[0], &adfMinMax[1], nullptr, nullptr, nullptr, nullptr);
+        if (eErr == CE_Warning)
+        {
+            ReportError(CE_Failure, CPLE_AppDefined,
+                        "Failed to compute min/max, no valid pixels found in "
+                        "sampling.");
+            eErr = CE_Failure;
+        }
+        return eErr;
+    }
+
     bool bSignedByte = false;
     if (eDataType == GDT_Byte)
     {
@@ -8753,7 +8765,7 @@ CPLErr GDALRasterBand::ComputeRasterMinMaxLocation(double *pdfMin,
                 const double dfMinValueBlock =
                     GetPixelValue(eDataType, bSignedByte, pData, pos_min,
                                   sNoDataValues, bValid);
-                if (bValid && dfMinValueBlock < dfMin)
+                if (bValid && (dfMinValueBlock < dfMin || nMinX < 0))
                 {
                     dfMin = dfMinValueBlock;
                     nMinX = iXBlock * nBlockXSize + nMinXBlock;
@@ -8769,7 +8781,7 @@ CPLErr GDALRasterBand::ComputeRasterMinMaxLocation(double *pdfMin,
                 const double dfMaxValueBlock =
                     GetPixelValue(eDataType, bSignedByte, pData, pos_max,
                                   sNoDataValues, bValid);
-                if (bValid && dfMaxValueBlock > dfMax)
+                if (bValid && (dfMaxValueBlock > dfMax || nMaxX < 0))
                 {
                     dfMax = dfMaxValueBlock;
                     nMaxX = iXBlock * nBlockXSize + nMaxXBlock;
@@ -8916,7 +8928,6 @@ CPLErr CPL_STDCALL GDALSetDefaultHistogram(GDALRasterBandH hBand, double dfMin,
  *
  * @see GDALRasterBand::SetDefaultHistogram()
  *
- * @since GDAL 2.0
  */
 
 CPLErr CPL_STDCALL GDALSetDefaultHistogramEx(GDALRasterBandH hBand,
@@ -9079,7 +9090,6 @@ CPLErr CPL_STDCALL GDALSetDefaultRAT(GDALRasterBandH hBand,
  *
  * @return a valid mask band.
  *
- * @since GDAL 1.5.0
  *
  * @see https://gdal.org/development/rfc/rfc15_nodatabitmask.html
  *
@@ -9414,7 +9424,6 @@ GDALRasterBandH CPL_STDCALL GDALGetMaskBand(GDALRasterBandH hBand)
  *
  * This method is the same as the C function GDALGetMaskFlags().
  *
- * @since GDAL 1.5.0
  *
  * @return a valid mask band.
  *
@@ -9489,7 +9498,6 @@ void GDALRasterBand::InvalidateMaskBand()
  *
  * This method is the same as the C function GDALCreateMaskBand().
  *
- * @since GDAL 1.5.0
  *
  * @param nFlagsIn 0 or combination of GMF_PER_DATASET / GMF_ALPHA.
  *
@@ -9842,7 +9850,6 @@ void GDALRasterBand::IncDirtyBlocks(int nInc)
  * will be treated as arguments to fill in this format in a manner
  * similar to printf().
  *
- * @since GDAL 1.9.0
  */
 
 void GDALRasterBand::ReportError(CPLErr eErrClass, CPLErrorNum err_no,
@@ -9923,7 +9930,7 @@ void GDALRasterBand::ReportError(CPLErr eErrClass, CPLErrorNum err_no,
  * @param papszOptions NULL terminated list of options.
  *                     If a specialized implementation exists, defining
  * USE_DEFAULT_IMPLEMENTATION=YES will cause the default implementation to be
- * used. On the contrary, starting with GDAL 2.2, defining
+ * used. On the contrary, defining
  * USE_DEFAULT_IMPLEMENTATION=NO will prevent the default implementation from
  * being used (thus only allowing efficient implementations to be used). When
  * requiring or falling back to the default implementation, the following
@@ -9934,7 +9941,6 @@ void GDALRasterBand::ReportError(CPLErr eErrClass, CPLErrorNum err_no,
  * @return a virtual memory object that must be unreferenced by
  * CPLVirtualMemFree(), or NULL in case of failure.
  *
- * @since GDAL 1.11
  */
 
 CPLVirtualMem *GDALRasterBand::GetVirtualMemAuto(GDALRWFlag eRWFlag,
@@ -10069,8 +10075,6 @@ CPLVirtualMem *GDALGetVirtualMemAuto(GDALRasterBandH hBand, GDALRWFlag eRWFlag,
  * @return a binary-or'ed combination of possible values
  * GDAL_DATA_COVERAGE_STATUS_UNIMPLEMENTED,
  * GDAL_DATA_COVERAGE_STATUS_DATA and GDAL_DATA_COVERAGE_STATUS_EMPTY
- *
- * @note Added in GDAL 2.2
  */
 
 int CPL_STDCALL GDALGetDataCoverageStatus(GDALRasterBandH hBand, int nXOff,
@@ -10166,8 +10170,6 @@ int CPL_STDCALL GDALGetDataCoverageStatus(GDALRasterBandH hBand, int nXOff,
  * @return a binary-or'ed combination of possible values
  * GDAL_DATA_COVERAGE_STATUS_UNIMPLEMENTED,
  * GDAL_DATA_COVERAGE_STATUS_DATA and GDAL_DATA_COVERAGE_STATUS_EMPTY
- *
- * @note Added in GDAL 2.2
  */
 
 /**
@@ -10240,8 +10242,6 @@ int CPL_STDCALL GDALGetDataCoverageStatus(GDALRasterBandH hBand, int nXOff,
  * @return a binary-or'ed combination of possible values
  * GDAL_DATA_COVERAGE_STATUS_UNIMPLEMENTED,
  * GDAL_DATA_COVERAGE_STATUS_DATA and GDAL_DATA_COVERAGE_STATUS_EMPTY
- *
- * @note Added in GDAL 2.2
  */
 
 int GDALRasterBand::GetDataCoverageStatus(int nXOff, int nYOff, int nXSize,
@@ -10478,15 +10478,25 @@ GDALRasterBand::WindowIteratorWrapper::WindowIteratorWrapper(
 
     if (dfBlocksPerChunk < dfBlocksPerRow)
     {
-        m_nBlockXSize =
-            nXSize * std::max<int>(static_cast<int>(dfBlocksPerChunk), 1);
+        m_nBlockXSize = static_cast<int>(std::min<double>(
+            m_nRasterXSize,
+            nXSize * std::max(std::floor(dfBlocksPerChunk), 1.0)));
         m_nBlockYSize = nYSize;
     }
     else
     {
         m_nBlockXSize = m_nRasterXSize;
-        m_nBlockYSize =
-            nYSize * static_cast<int>(dfBlocksPerChunk / dfBlocksPerRow);
+        m_nBlockYSize = static_cast<int>(std::min<double>(
+            m_nRasterYSize,
+            nYSize * std::floor(dfBlocksPerChunk / dfBlocksPerRow)));
+    }
+    if constexpr (sizeof(size_t) < sizeof(uint64_t))
+    {
+        if (m_nBlockXSize > std::numeric_limits<int>::max() / m_nBlockYSize)
+        {
+            nXSize = m_nRasterXSize;
+            nYSize = 1;
+        }
     }
 }
 
@@ -10503,6 +10513,14 @@ GDALRasterBand::WindowIteratorWrapper::end() const
     return WindowIterator(m_nRasterXSize, m_nRasterYSize, m_nBlockXSize,
                           m_nBlockYSize,
                           DIV_ROUND_UP(m_nRasterYSize, m_nBlockYSize), 0);
+}
+
+uint64_t GDALRasterBand::WindowIteratorWrapper::count() const
+{
+    return static_cast<uint64_t>(
+               cpl::div_round_up(m_nRasterXSize, m_nBlockXSize)) *
+           static_cast<uint64_t>(
+               cpl::div_round_up(m_nRasterYSize, m_nBlockYSize));
 }
 
 //! @endcond

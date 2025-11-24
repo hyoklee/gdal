@@ -612,6 +612,8 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
         explicit WindowIteratorWrapper(const GDALRasterBand &band,
                                        size_t maxSize);
 
+        uint64_t count() const;
+
         WindowIterator begin() const;
 
         WindowIterator end() const;
@@ -639,7 +641,6 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
     //! @endcond
 
     /** Convert a GDALRasterBand* to a GDALRasterBandH.
-     * @since GDAL 2.3
      */
     static inline GDALRasterBandH ToHandle(GDALRasterBand *poBand)
     {
@@ -647,7 +648,6 @@ class CPL_DLL GDALRasterBand : public GDALMajorObject
     }
 
     /** Convert a GDALRasterBandH to a GDALRasterBand*.
-     * @since GDAL 2.3
      */
     static inline GDALRasterBand *FromHandle(GDALRasterBandH hBand)
     {

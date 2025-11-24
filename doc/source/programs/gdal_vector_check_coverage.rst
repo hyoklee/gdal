@@ -31,6 +31,12 @@ If the coverage is valid, the output dataset will be empty unless :option:`--inc
 
 It is assumed that the individual polygons are themselves valid according to the :term:`OGC` Simple Features standard. This can be checked by :ref:`gdal_vector_check_geometry`.
 
+.. only:: html
+
+   .. figure:: ../../images/programs/gdal_vector_check_coverage.svg
+
+      Polygon dataset (left) and locations of invalid coverage edges (right).
+
 .. note:: This command requires a GDAL build against the GEOS library (version 3.12 or greater).
 
 Standard options
@@ -44,6 +50,12 @@ Standard options
 .. option:: --include-valid
 
    Include features for valid geometries in the output, maintaining 1:1 correspondence between input and output features.
+
+.. option:: --include-field
+
+   .. versionadded:: 3.12.1
+
+   Optional field(s) to copy from the input features to the output.
 
 .. option:: --maximum-gap-width <MAXIMUM-GAP-WIDTH>
 

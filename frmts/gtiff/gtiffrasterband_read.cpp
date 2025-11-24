@@ -25,6 +25,7 @@
 #include "cpl_vsi_virtual.h"
 #include "fetchbufferdirectio.h"
 #include "gdal_priv.h"
+#include "gdal_mdreader.h"
 #include "gtiff.h"
 #include "tifvsi.h"
 
@@ -35,14 +36,30 @@
 GDALRasterAttributeTable *GTiffRasterBand::GetDefaultRAT()
 
 {
-    if (m_poRAT || m_poGDS->m_poBaseDS != nullptr)
+    if (m_poGDS->m_poBaseDS != nullptr)
         return m_poRAT.get();
 
     m_poGDS->LoadGeoreferencingAndPamIfNeeded();
-    auto poRAT = GDALPamRasterBand::GetDefaultRAT();
-    if (poRAT)
-        return poRAT;
 
+    // RAT from PAM has priority over RAT in GDAL_METADATA TIFF tag
+    if (!m_bRATTriedReadingFromPAM)
+    {
+        m_bRATTriedReadingFromPAM = true;
+        auto poRAT = GDALPamRasterBand::GetDefaultRAT();
+        if (poRAT)
+        {
+            m_bRATSet = true;
+            m_poRAT.reset(poRAT->Clone());
+            return m_poRAT.get();
+        }
+    }
+
+    if (m_bRATSet)
+        return m_poRAT.get();
+
+    m_bRATSet = true;
+
+    // Try reading from a .vat.dbf side car file
     if (!GDALCanFileAcceptSidecarFile(m_poGDS->m_osFilename.c_str()))
         return nullptr;
     const std::string osVATDBF = m_poGDS->m_osFilename + ".vat.dbf";
@@ -1046,6 +1063,8 @@ char **GTiffRasterBand::GetMetadataDomainList()
 {
     m_poGDS->LoadGeoreferencingAndPamIfNeeded();
 
+    m_poGDS->LoadENVIHdrIfNeeded();
+
     return CSLDuplicate(m_oGTiffMDMD.GetDomainList());
 }
 
@@ -1059,6 +1078,12 @@ char **GTiffRasterBand::GetMetadata(const char *pszDomain)
     if (pszDomain == nullptr || !EQUAL(pszDomain, "IMAGE_STRUCTURE"))
     {
         m_poGDS->LoadGeoreferencingAndPamIfNeeded();
+
+        m_poGDS->LoadENVIHdrIfNeeded();
+    }
+    else if (EQUAL(pszDomain, MD_DOMAIN_IMAGERY))
+    {
+        m_poGDS->LoadENVIHdrIfNeeded();
     }
 
     return m_oGTiffMDMD.GetMetadata(pszDomain);
@@ -1075,6 +1100,12 @@ const char *GTiffRasterBand::GetMetadataItem(const char *pszName,
     if (pszDomain == nullptr || !EQUAL(pszDomain, "IMAGE_STRUCTURE"))
     {
         m_poGDS->LoadGeoreferencingAndPamIfNeeded();
+
+        m_poGDS->LoadENVIHdrIfNeeded();
+    }
+    else if (EQUAL(pszDomain, MD_DOMAIN_IMAGERY))
+    {
+        m_poGDS->LoadENVIHdrIfNeeded();
     }
 
     if (pszName != nullptr && pszDomain != nullptr && EQUAL(pszDomain, "TIFF"))

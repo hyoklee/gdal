@@ -3575,10 +3575,13 @@ void PDFDataset::AddLayer(const std::string &osName, int iPage)
 }
 
 /************************************************************************/
-/*                           CreateLayerList()                          */
+/*                            SortLayerList()                           */
 /************************************************************************/
 
-void PDFDataset::CreateLayerList()
+// recent libc++ std::sort() involve unsigned integer overflow in some
+// situation
+CPL_NOSANITIZE_UNSIGNED_INT_OVERFLOW
+void PDFDataset::SortLayerList()
 {
     // Sort layers by prioritizing page number and then insertion index
     std::sort(m_oLayerNameSet.begin(), m_oLayerNameSet.end(),
@@ -3590,6 +3593,15 @@ void PDFDataset::CreateLayerList()
                       return false;
                   return a.nInsertIdx < b.nInsertIdx;
               });
+}
+
+/************************************************************************/
+/*                           CreateLayerList()                          */
+/************************************************************************/
+
+void PDFDataset::CreateLayerList()
+{
+    SortLayerList();
 
     if (m_oLayerNameSet.size() >= 100)
     {
@@ -5149,8 +5161,9 @@ PDFDataset *PDFDataset::Open(GDALOpenInfo *poOpenInfo)
     if (bUseLib.test(PDFLIB_PODOFO))
     {
         CPLAssert(poPagePodofo);
-#if PODOFO_VERSION_MAJOR > 0 ||                                                \
-    (PODOFO_VERSION_MAJOR == 0 && PODOFO_VERSION_MINOR >= 10)
+#if PODOFO_VERSION_MAJOR >= 1
+        poPagePodofo->TryGetRotationRaw(dfRotation);
+#elif (PODOFO_VERSION_MAJOR == 0 && PODOFO_VERSION_MINOR >= 10)
         dfRotation = poPagePodofo->GetRotationRaw();
 #else
         dfRotation = poPagePodofo->GetRotation();

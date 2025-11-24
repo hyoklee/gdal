@@ -25,6 +25,7 @@
 #include "gdalalg_vector_geom.h"
 #include "gdalalg_vector_info.h"
 #include "gdalalg_vector_limit.h"
+#include "gdalalg_vector_make_point.h"
 #include "gdalalg_vector_make_valid.h"
 #include "gdalalg_vector_partition.h"
 #include "gdalalg_vector_reproject.h"
@@ -36,6 +37,7 @@
 #include "gdalalg_vector_simplify_coverage.h"
 #include "gdalalg_vector_sql.h"
 #include "gdalalg_vector_swap_xy.h"
+#include "gdalalg_vector_update.h"
 #include "gdalalg_vector_write.h"
 #include "gdalalg_tee.h"
 
@@ -166,6 +168,7 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
     registry.Register<GDALVectorFilterAlgorithm>();
     registry.Register<GDALVectorGeomAlgorithm>();
     registry.Register<GDALVectorLimitAlgorithm>();
+    registry.Register<GDALVectorMakePointAlgorithm>();
     registry.Register<GDALVectorMakeValidAlgorithm>();
     registry.Register<GDALVectorPartitionAlgorithm>();
     registry.Register<GDALVectorSegmentizeAlgorithm>();
@@ -178,6 +181,8 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
     registry.Register<GDALVectorSimplifyAlgorithm>();
     registry.Register<GDALVectorSimplifyCoverageAlgorithm>();
     registry.Register<GDALVectorSQLAlgorithm>();
+    registry.Register<GDALVectorUpdateAlgorithm>(
+        addSuffixIfNeeded(GDALVectorUpdateAlgorithm::NAME));
     registry.Register<GDALVectorSwapXYAlgorithm>();
 
     registry.Register<GDALTeeVectorAlgorithm>(
@@ -350,6 +355,10 @@ OGRFeature *GDALVectorPipelineOutputLayer::GetNextRawFeature()
         if (!poSrcFeature)
             return nullptr;
         TranslateFeature(std::move(poSrcFeature), m_pendingFeatures);
+        if (m_translateError)
+        {
+            return nullptr;
+        }
         if (!m_pendingFeatures.empty())
             break;
     }

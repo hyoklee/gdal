@@ -36,13 +36,17 @@
 #pragma clang diagnostic ignored "-Wweak-vtables"
 #endif
 
+inline IOGRArrowLayer::~IOGRArrowLayer() = default;
+
 /************************************************************************/
 /*                         OGRArrowLayer()                              */
 /************************************************************************/
 
 inline OGRArrowLayer::OGRArrowLayer(OGRArrowDataset *poDS,
-                                    const char *pszLayerName)
-    : m_poArrowDS(poDS), m_poMemoryPool(poDS->GetMemoryPool())
+                                    const char *pszLayerName,
+                                    bool bListsAsStringJson)
+    : m_poArrowDS(poDS), m_bListsAsStringJson(bListsAsStringJson),
+      m_poMemoryPool(poDS->GetMemoryPool())
 {
     m_poFeatureDefn = new OGRFeatureDefn(pszLayerName);
     m_poFeatureDefn->SetGeomType(wkbNone);
@@ -520,6 +524,13 @@ inline bool OGRArrowLayer::MapArrowTypeToOGR(
                     break;
                 }
             }
+
+            if (bTypeOK && m_bListsAsStringJson)
+            {
+                eType = OFTString;
+                eSubType = OFSTJSON;
+            }
+
             break;
         }
 
@@ -2523,8 +2534,20 @@ inline OGRFeature *OGRArrowLayer::ReadFeature(
                     static_cast<const arrow::ListArray *>(array);
                 const auto listType = static_cast<const arrow::ListType *>(
                     array->data()->type.get());
-                ReadList(poFeature, i, nIdxInBatch, castArray,
-                         listType->value_field()->type()->id());
+
+                if (m_bListsAsStringJson)
+                {
+                    poFeature->SetField(
+                        i, GetListAsJSON(castArray,
+                                         static_cast<size_t>(nIdxInBatch))
+                               .Format(CPLJSONObject::PrettyFormat::Plain)
+                               .c_str());
+                }
+                else
+                {
+                    ReadList(poFeature, i, nIdxInBatch, castArray,
+                             listType->value_field()->type()->id());
+                }
                 break;
             }
 
@@ -2535,8 +2558,20 @@ inline OGRFeature *OGRArrowLayer::ReadFeature(
                 const auto listType =
                     static_cast<const arrow::FixedSizeListType *>(
                         array->data()->type.get());
-                ReadList(poFeature, i, nIdxInBatch, castArray,
-                         listType->value_field()->type()->id());
+
+                if (m_bListsAsStringJson)
+                {
+                    poFeature->SetField(
+                        i, GetListAsJSON(castArray,
+                                         static_cast<size_t>(nIdxInBatch))
+                               .Format(CPLJSONObject::PrettyFormat::Plain)
+                               .c_str());
+                }
+                else
+                {
+                    ReadList(poFeature, i, nIdxInBatch, castArray,
+                             listType->value_field()->type()->id());
+                }
                 break;
             }
 

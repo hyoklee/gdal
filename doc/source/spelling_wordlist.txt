@@ -1332,7 +1332,6 @@ hMaskBand
 hMutex
 hNewSubGeom
 hObject
-hOutDS
 hobu
 hoc
 holded
@@ -1355,6 +1354,7 @@ hOtherFeature
 hotine
 Hotine
 Hough
+hOutDS
 howard
 HowardB
 hProximityBand
@@ -1404,6 +1404,7 @@ idofic
 Idrisi
 iDriver
 idx
+idxN
 ie
 ieee
 ifdef
@@ -2316,6 +2317,7 @@ pabyHeader
 pabyM
 pabySrcData
 pabyValue
+pabyWKB
 pabyX
 pabyY
 pabyZ
@@ -2375,6 +2377,7 @@ papoPolygons
 papszDirFiles
 papszFields
 papszFileList
+papszInfo
 papszLayerList
 papszMetadata
 papszOpenOptions
@@ -2577,6 +2580,7 @@ Postgresql
 poTargetSRS
 pOutBuffer
 ppabyRet
+ppabyWKB
 ppadfOutNoData
 ppadfPrjParams
 ppanHistogram
@@ -2659,6 +2663,7 @@ proxyauth
 proxyuserpwd
 prsence
 ps
+psBlockInfo
 psChild
 psDT
 psEnvelope
@@ -2811,6 +2816,7 @@ ReadCompressedData
 readdir
 ReadDir
 ReadRaster
+RealList
 realloc
 rebased
 Recherches
@@ -3751,6 +3757,7 @@ yk
 ym
 ymax
 ymin
+yml
 yoff
 yOff
 YOrigin

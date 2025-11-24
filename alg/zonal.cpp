@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 #include <variant>
 #include <vector>
 
@@ -41,12 +42,12 @@ struct GDALZonalStatsOptions
         {
             if (EQUAL(key, "BANDS"))
             {
-                CPLStringList aosBands(CSLTokenizeString2(
+                const CPLStringList aosBands(CSLTokenizeString2(
                     value, ",", CSLT_STRIPLEADSPACES | CSLT_STRIPENDSPACES));
                 for (const char *pszBand : aosBands)
                 {
                     int nBand = std::atoi(pszBand);
-                    if (nBand == 0)
+                    if (nBand <= 0)
                     {
                         CPLError(CE_Failure, CPLE_IllegalArg,
                                  "Invalid band: %s", pszBand);
@@ -91,22 +92,28 @@ struct GDALZonalStatsOptions
             }
             else if (EQUAL(key, "RASTER_CHUNK_SIZE_BYTES"))
             {
-                memory = std::stoul(value);
-                if (memory == 0)
+                char *endptr = nullptr;
+                errno = 0;
+                const auto memory64 = std::strtoull(value, &endptr, 10);
+                bool ok = errno != ERANGE && memory64 != ULLONG_MAX &&
+                          endptr == value + strlen(value);
+                if constexpr (sizeof(memory64) > sizeof(size_t))
+                {
+                    ok = ok &&
+                         memory64 <= std::numeric_limits<size_t>::max() - 1;
+                }
+                if (!ok)
                 {
                     CPLError(CE_Failure, CPLE_IllegalArg,
                              "Invalid memory size: %s", value);
                     return CE_Failure;
                 }
+                memory = static_cast<size_t>(memory64);
             }
             else if (EQUAL(key, "STATS"))
             {
-                CPLStringList aosStats(CSLTokenizeString2(
+                stats = CPLStringList(CSLTokenizeString2(
                     value, ",", CSLT_STRIPLEADSPACES | CSLT_STRIPENDSPACES));
-                for (const char *pszStat : aosStats)
-                {
-                    stats.push_back(pszStat);
-                }
             }
             else if (EQUAL(key, "STRATEGY"))
             {
@@ -128,7 +135,7 @@ struct GDALZonalStatsOptions
             else if (EQUAL(key, "WEIGHTS_BAND"))
             {
                 weights_band = std::atoi(value);
-                if (weights_band == 0)
+                if (weights_band <= 0)
                 {
                     CPLError(CE_Failure, CPLE_IllegalArg,
                              "Invalid weights band: %s", value);
@@ -138,7 +145,7 @@ struct GDALZonalStatsOptions
             else if (EQUAL(key, "ZONES_BAND"))
             {
                 zones_band = std::atoi(value);
-                if (zones_band == 0)
+                if (zones_band <= 0)
                 {
                     CPLError(CE_Failure, CPLE_IllegalArg,
                              "Invalid zones band: %s", value);
@@ -148,6 +155,11 @@ struct GDALZonalStatsOptions
             else if (EQUAL(key, "ZONES_LAYER"))
             {
                 zones_layer = value;
+            }
+            else if (STARTS_WITH(key, "LCO_"))
+            {
+                layer_creation_options.SetNameValue(key + strlen("LCO_"),
+                                                    value);
             }
             else
             {
@@ -181,88 +193,41 @@ struct GDALZonalStatsOptions
     std::size_t memory{0};
     int zones_band{};
     int weights_band{};
+    CPLStringList layer_creation_options{};
 };
 
 template <typename T = GByte> auto CreateBuffer()
 {
-    return std::unique_ptr<T, decltype(&CPLFree)>{nullptr, CPLFree};
+    return std::unique_ptr<T, VSIFreeReleaser>(nullptr);
 }
 
-template <typename T> void Realloc(T &buf, size_t size, bool &success)
+template <typename T>
+void Realloc(T &buf, size_t size1, size_t size2, bool &success)
 {
     if (!success)
     {
         return;
     }
-    buf.reset(static_cast<typename T::element_type *>(
-        VSI_REALLOC_VERBOSE(buf.release(), size)));
-    if (buf == nullptr)
+    if constexpr (sizeof(size_t) < sizeof(uint64_t))
     {
+        if (size1 > std::numeric_limits<size_t>::max() / size2)
+        {
+            success = false;
+            CPLError(CE_Failure, CPLE_OutOfMemory,
+                     "Too big memory allocation attempt");
+            return;
+        }
+    }
+    const auto size = size1 * size2;
+    auto oldBuf = buf.release();
+    auto newBuf = static_cast<typename T::element_type *>(
+        VSI_REALLOC_VERBOSE(oldBuf, size));
+    if (newBuf == nullptr)
+    {
+        VSIFree(oldBuf);
         success = false;
     }
-}
-
-#ifdef HAVE_GEOS
-// This function has nothing to do with GEOS, but if GEOS is not available it
-// will not be used, triggering an error under  -Wunused-function.
-
-// Trim a window so that it does not include any pixels outside a specified window.
-static void TrimWindow(GDALRasterWindow &window,
-                       const GDALRasterWindow &trimWindow)
-{
-    if (window.nXOff < trimWindow.nXOff)
-    {
-        window.nXSize -= (trimWindow.nXOff - window.nXOff);
-        window.nXOff = trimWindow.nXOff;
-    }
-    if (window.nYOff < trimWindow.nYOff)
-    {
-        window.nYSize -= (trimWindow.nYOff - window.nYOff);
-        window.nYOff = trimWindow.nYOff;
-    }
-    auto trimWindowXMax = trimWindow.nXOff + trimWindow.nXSize;
-    if (window.nXOff + window.nXSize > trimWindowXMax)
-    {
-        window.nXSize = trimWindowXMax - window.nXOff;
-    }
-    auto trimWindowYMax = trimWindow.nYOff + trimWindow.nYSize;
-    if (window.nYOff + window.nYSize > trimWindowYMax)
-    {
-        window.nYSize = trimWindowYMax - window.nYOff;
-    }
-}
-#endif
-
-// Trim a window so that it does not include any pixels outside the raster extent.
-static void TrimWindowToRaster(GDALRasterWindow &window,
-                               const GDALDataset &rast)
-{
-    const int nXSize = rast.GetRasterXSize();
-    const int nYSize = rast.GetRasterYSize();
-
-    if (window.nXOff < 0)
-    {
-        window.nXSize += window.nXOff;
-        window.nXOff = 0;
-    }
-    else if (window.nXOff >= nXSize)
-    {
-        window.nXOff = 0;
-        window.nXSize = 0;
-    }
-
-    if (window.nYOff < 0)
-    {
-        window.nYSize += window.nYOff;
-        window.nYOff = 0;
-    }
-    else if (window.nYOff >= nYSize)
-    {
-        window.nYOff = 0;
-        window.nYSize = 0;
-    }
-    window.nXSize = std::min(window.nXSize, nXSize - window.nXOff);
-    window.nYSize = std::min(window.nYSize, nYSize - window.nYOff);
+    buf.reset(newBuf);
 }
 
 static void CalculateCellCenters(const GDALRasterWindow &window,
@@ -288,7 +253,7 @@ class GDALZonalStatsImpl
   public:
     enum Stat
     {
-        CENTER_X,
+        CENTER_X,  // must be first value
         CENTER_Y,
         COUNT,
         COVERAGE,
@@ -314,7 +279,7 @@ class GDALZonalStatsImpl
         WEIGHTED_STDEV,
         WEIGHTED_VARIANCE,
         WEIGHTS,
-        INVALID,
+        INVALID,  // must be last value
     };
 
     static constexpr bool IsWeighted(Stat eStat)
@@ -332,14 +297,9 @@ class GDALZonalStatsImpl
           m_coverageDataType(options.pixels == GDALZonalStatsOptions::FRACTIONAL
                                  ? GDT_Float32
                                  : GDT_Byte),
-          m_workingDataType(GDT_Float64), m_maskDataType(GDT_Byte),
           m_options(options),
           m_maxCells(options.memory /
-                     GDALGetDataTypeSizeBytes(m_workingDataType)),
-          m_pabyCoverageBuf{nullptr, CPLFree}, m_pabyMaskBuf{nullptr, CPLFree},
-          m_pabyValuesBuf{nullptr, CPLFree}, m_padfWeightsBuf{nullptr, CPLFree},
-          m_pabyWeightsMaskBuf{nullptr, CPLFree}, m_padfX{nullptr, CPLFree},
-          m_padfY{nullptr, CPLFree}
+                     std::max(1, GDALGetDataTypeSizeBytes(m_workingDataType)))
     {
 #ifdef HAVE_GEOS
         m_geosContext = OGRGeometry::createGEOSContext();
@@ -371,11 +331,30 @@ class GDALZonalStatsImpl
 
         if (m_options.bands.empty())
         {
-            int nBands = m_src.GetRasterCount();
+            const int nBands = m_src.GetRasterCount();
+            if (nBands == 0)
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "GDALRasterZonalStats: input dataset has no bands");
+                return false;
+            }
             m_options.bands.resize(nBands);
             for (int i = 0; i < nBands; i++)
             {
                 m_options.bands[i] = i + 1;
+            }
+        }
+        else
+        {
+            for (int nBand : m_options.bands)
+            {
+                if (nBand <= 0 || nBand > m_src.GetRasterCount())
+                {
+                    CPLError(CE_Failure, CPLE_AppDefined,
+                             "GDALRasterZonalStats: Invalid band number: %d",
+                             nBand);
+                    return false;
+                }
             }
         }
 
@@ -394,6 +373,12 @@ class GDALZonalStatsImpl
 
         if (m_weights)
         {
+            if (m_options.weights_band > m_weights->GetRasterCount())
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "GDALRasterZonalStats: invalid weights band");
+                return false;
+            }
             const auto eWeightsType =
                 m_weights->GetRasterBand(m_options.weights_band)
                     ->GetRasterDataType();
@@ -410,39 +395,60 @@ class GDALZonalStatsImpl
         for (const auto &stat : m_options.stats)
         {
             const auto eStat = GetStat(stat);
-            if (eStat == INVALID)
+            switch (eStat)
             {
-                CPLError(CE_Failure, CPLE_AppDefined, "Invalid stat: %s",
-                         stat.c_str());
-                return false;
-            }
-            if (eStat == COVERAGE)
-            {
-                m_stats_options.store_coverage_fraction = true;
-            }
-            if (eStat == VARIETY || eStat == MODE || eStat == MINORITY ||
-                eStat == UNIQUE || eStat == FRAC || eStat == WEIGHTED_FRAC)
-            {
-                m_stats_options.store_histogram = true;
-            }
-            if (eStat == VARIANCE || eStat == STDEV ||
-                eStat == WEIGHTED_VARIANCE || eStat == WEIGHTED_STDEV)
-            {
-                m_stats_options.calc_variance = true;
-            }
-            if (eStat == CENTER_X || eStat == CENTER_Y ||
-                eStat == MIN_CENTER_X || eStat == MIN_CENTER_Y ||
-                eStat == MAX_CENTER_X || eStat == MAX_CENTER_Y)
-            {
-                m_stats_options.store_xy = true;
-            }
-            if (eStat == VALUES)
-            {
-                m_stats_options.store_values = true;
-            }
-            if (eStat == WEIGHTS)
-            {
-                m_stats_options.store_weights = true;
+                case INVALID:
+                {
+                    CPLError(CE_Failure, CPLE_AppDefined, "Invalid stat: %s",
+                             stat.c_str());
+                    return false;
+                }
+
+                case COVERAGE:
+                    m_stats_options.store_coverage_fraction = true;
+                    break;
+
+                case VARIETY:
+                case MODE:
+                case MINORITY:
+                case UNIQUE:
+                case FRAC:
+                case WEIGHTED_FRAC:
+                    m_stats_options.store_histogram = true;
+                    break;
+
+                case VARIANCE:
+                case STDEV:
+                case WEIGHTED_VARIANCE:
+                case WEIGHTED_STDEV:
+                    m_stats_options.calc_variance = true;
+                    break;
+
+                case CENTER_X:
+                case CENTER_Y:
+                case MIN_CENTER_X:
+                case MIN_CENTER_Y:
+                case MAX_CENTER_X:
+                case MAX_CENTER_Y:
+                    m_stats_options.store_xy = true;
+                    break;
+
+                case VALUES:
+                    m_stats_options.store_values = true;
+                    break;
+
+                case WEIGHTS:
+                    m_stats_options.store_weights = true;
+                    break;
+
+                case COUNT:
+                case MIN:
+                case MAX:
+                case SUM:
+                case MEAN:
+                case WEIGHTED_SUM:
+                case WEIGHTED_MEAN:
+                    break;
             }
             if (m_weights == nullptr && IsWeighted(eStat))
             {
@@ -455,10 +461,14 @@ class GDALZonalStatsImpl
 
         if (m_src.GetGeoTransform(m_srcGT) != CE_None)
         {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Dataset has no geotransform");
             return false;
         }
         if (!m_srcGT.GetInverse(m_srcInvGT))
         {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Dataset geotransform cannot be inverted");
             return false;
         }
 
@@ -535,13 +545,16 @@ class GDALZonalStatsImpl
         std::string osLayerName = "stats";
 
         OGRLayer *poLayer =
-            m_dst.CreateLayer(osLayerName.c_str(), nullptr, nullptr);
+            m_dst.CreateLayer(osLayerName.c_str(), nullptr,
+                              m_options.layer_creation_options.List());
+        if (!poLayer)
+            return nullptr;
 
         if (createValueField)
         {
-            const auto poField =
-                std::make_unique<OGRFieldDefn>("value", OFTReal);
-            poLayer->CreateField(poField.get());
+            OGRFieldDefn oFieldDefn("value", OFTReal);
+            if (poLayer->CreateField(&oFieldDefn) != OGRERR_NONE)
+                return nullptr;
         }
 
         if (!m_options.include_fields.empty())
@@ -553,7 +566,9 @@ class GDALZonalStatsImpl
             {
                 const int iField = poSrcDefn->GetFieldIndex(field.c_str());
                 // Already checked field names during Init()
-                poLayer->CreateField(poSrcDefn->GetFieldDefn(iField));
+                if (poLayer->CreateField(poSrcDefn->GetFieldDefn(iField)) !=
+                    OGRERR_NONE)
+                    return nullptr;
             }
         }
 
@@ -576,9 +591,10 @@ class GDALZonalStatsImpl
                     osFieldName = stat;
                 }
 
-                const auto poField = std::make_unique<OGRFieldDefn>(
-                    osFieldName.c_str(), GetFieldType(eStat));
-                poLayer->CreateField(poField.get());
+                OGRFieldDefn oFieldDefn(osFieldName.c_str(),
+                                        GetFieldType(eStat));
+                if (poLayer->CreateField(&oFieldDefn) != OGRERR_NONE)
+                    return nullptr;
                 const int iNewField =
                     poLayer->GetLayerDefn()->GetFieldIndex(osFieldName.c_str());
                 aiStatFields[eStat] = iNewField;
@@ -588,60 +604,75 @@ class GDALZonalStatsImpl
         return poLayer;
     }
 
+    static const char *GetString(Stat s)
+    {
+        switch (s)
+        {
+            case CENTER_X:
+                return "center_x";
+            case CENTER_Y:
+                return "center_y";
+            case COUNT:
+                return "count";
+            case COVERAGE:
+                return "coverage";
+            case FRAC:
+                return "frac";
+            case MAX:
+                return "max";
+            case MAX_CENTER_X:
+                return "max_center_x";
+            case MAX_CENTER_Y:
+                return "max_center_y";
+            case MEAN:
+                return "mean";
+            case MIN:
+                return "min";
+            case MIN_CENTER_X:
+                return "min_center_x";
+            case MIN_CENTER_Y:
+                return "min_center_y";
+            case MINORITY:
+                return "minority";
+            case MODE:
+                return "mode";
+            case STDEV:
+                return "stdev";
+            case SUM:
+                return "sum";
+            case UNIQUE:
+                return "unique";
+            case VALUES:
+                return "values";
+            case VARIANCE:
+                return "variance";
+            case VARIETY:
+                return "variety";
+            case WEIGHTED_FRAC:
+                return "weighted_frac";
+            case WEIGHTED_MEAN:
+                return "weighted_mean";
+            case WEIGHTED_SUM:
+                return "weighted_sum";
+            case WEIGHTED_STDEV:
+                return "weighted_stdev";
+            case WEIGHTED_VARIANCE:
+                return "weighted_variance";
+            case WEIGHTS:
+                return "weights";
+            case INVALID:
+                break;
+        }
+        return "invalid";
+    }
+
     static Stat GetStat(const std::string &stat)
     {
-        if (stat == "center_x")
-            return CENTER_X;
-        if (stat == "center_y")
-            return CENTER_Y;
-        if (stat == "count")
-            return COUNT;
-        if (stat == "coverage")
-            return COVERAGE;
-        if (stat == "frac")
-            return FRAC;
-        if (stat == "max")
-            return MAX;
-        if (stat == "max_center_x")
-            return MAX_CENTER_X;
-        if (stat == "max_center_y")
-            return MAX_CENTER_Y;
-        if (stat == "mean")
-            return MEAN;
-        if (stat == "min")
-            return MIN;
-        if (stat == "minority")
-            return MINORITY;
-        if (stat == "min_center_x")
-            return MIN_CENTER_X;
-        if (stat == "min_center_y")
-            return MIN_CENTER_Y;
-        if (stat == "mode")
-            return MODE;
-        if (stat == "stdev")
-            return STDEV;
-        if (stat == "sum")
-            return SUM;
-        if (stat == "unique")
-            return UNIQUE;
-        if (stat == "values")
-            return VALUES;
-        if (stat == "variance")
-            return VARIANCE;
-        if (stat == "variety")
-            return VARIETY;
-        if (stat == "weighted_frac")
-            return WEIGHTED_FRAC;
-        if (stat == "weighted_mean")
-            return WEIGHTED_MEAN;
-        if (stat == "weighted_stdev")
-            return WEIGHTED_STDEV;
-        if (stat == "weighted_sum")
-            return WEIGHTED_SUM;
-        if (stat == "weighted_variance")
-            return WEIGHTED_VARIANCE;
-        if (stat == "weights")
-            return WEIGHTS;
+        for (Stat s = CENTER_X; s < INVALID; s = static_cast<Stat>(s + 1))
+        {
+            if (stat == GetString(s))
+                return s;
+        }
         return INVALID;
     }
 
@@ -659,9 +690,28 @@ class GDALZonalStatsImpl
                 return OFTRealList;
             case VARIETY:
                 return OFTInteger;
-            default:
-                return OFTReal;
+            case COUNT:
+            case MAX:
+            case MAX_CENTER_X:
+            case MAX_CENTER_Y:
+            case MEAN:
+            case MIN:
+            case MIN_CENTER_X:
+            case MIN_CENTER_Y:
+            case MINORITY:
+            case MODE:
+            case STDEV:
+            case SUM:
+            case VARIANCE:
+            case WEIGHTED_FRAC:
+            case WEIGHTED_MEAN:
+            case WEIGHTED_SUM:
+            case WEIGHTED_STDEV:
+            case WEIGHTED_VARIANCE:
+            case INVALID:
+                break;
         }
+        return OFTReal;
     }
 
     int GetFieldIndex(int iBand, Stat eStat) const
@@ -817,7 +867,9 @@ class GDALZonalStatsImpl
             values.reserve(freq.size());
             for (const auto &[_, valueCount] : freq)
             {
-                values.push_back(valueCount.m_sum_ciwi / count);
+                // Add std::numeric_limits<double>::min() to please Coverity Scan
+                values.push_back(valueCount.m_sum_ciwi /
+                                 (count + std::numeric_limits<double>::min()));
             }
             feature.SetField(iField, static_cast<int>(values.size()),
                              values.data());
@@ -1023,6 +1075,8 @@ class GDALZonalStatsImpl
         WarnIfZonesNotCovered(poZonesBand);
 
         OGRLayer *poDstLayer = GetOutputLayer(true);
+        if (!poDstLayer)
+            return false;
 
         // Align the src dataset to the zones.
         bool resampled;
@@ -1059,58 +1113,48 @@ class GDALZonalStatsImpl
 
         std::map<double, std::vector<gdal::RasterStats<double>>> stats;
 
-        // Load all windows into a vector. This is a lazy way to allow us to
-        // report progress.
-        std::vector<GDALRasterWindow> windows;
-        for (GDALRasterWindow oWindow :
-             poAlignedValuesDS->GetRasterBand(1)->IterateWindows(m_maxCells))
-        {
-            windows.push_back(oWindow);
-        }
-
         auto pabyZonesBuf = CreateBuffer();
         size_t nBufSize = 0;
 
-        for (size_t iWindow = 0; iWindow < windows.size(); iWindow++)
+        const auto windowIteratorWrapper =
+            poAlignedValuesDS->GetRasterBand(1)->IterateWindows(m_maxCells);
+        const auto nIterCount = windowIteratorWrapper.count();
+        uint64_t iWindow = 0;
+        for (const auto &oWindow : windowIteratorWrapper)
         {
-            const GDALRasterWindow &oWindow = windows[iWindow];
-            auto nWindowSize = static_cast<size_t>(oWindow.nXSize) *
-                               static_cast<size_t>(oWindow.nYSize);
+            const auto nWindowSize = static_cast<size_t>(oWindow.nXSize) *
+                                     static_cast<size_t>(oWindow.nYSize);
 
             if (nBufSize < nWindowSize)
             {
                 bool bAllocSuccess = true;
-                Realloc(m_pabyValuesBuf,
-                        nWindowSize *
-                            GDALGetDataTypeSizeBytes(m_workingDataType),
+                Realloc(m_pabyValuesBuf, nWindowSize,
+                        GDALGetDataTypeSizeBytes(m_workingDataType),
                         bAllocSuccess);
-                Realloc(pabyZonesBuf,
-                        nWindowSize * GDALGetDataTypeSizeBytes(m_zonesDataType),
+                Realloc(pabyZonesBuf, nWindowSize,
+                        GDALGetDataTypeSizeBytes(m_zonesDataType),
                         bAllocSuccess);
-                Realloc(m_pabyMaskBuf,
-                        nWindowSize * GDALGetDataTypeSizeBytes(m_maskDataType),
+                Realloc(m_pabyMaskBuf, nWindowSize,
+                        GDALGetDataTypeSizeBytes(m_maskDataType),
                         bAllocSuccess);
 
                 if (m_stats_options.store_xy)
                 {
-                    Realloc(m_padfX,
-                            oWindow.nXSize *
-                                GDALGetDataTypeSizeBytes(GDT_Float64),
+                    Realloc(m_padfX, oWindow.nXSize,
+                            GDALGetDataTypeSizeBytes(GDT_Float64),
                             bAllocSuccess);
-                    Realloc(m_padfY,
-                            oWindow.nYSize *
-                                GDALGetDataTypeSizeBytes(GDT_Float64),
+                    Realloc(m_padfY, oWindow.nYSize,
+                            GDALGetDataTypeSizeBytes(GDT_Float64),
                             bAllocSuccess);
                 }
 
                 if (poWeightsBand)
                 {
-                    Realloc(m_padfWeightsBuf,
-                            nWindowSize * GDALGetDataTypeSizeBytes(GDT_Float64),
+                    Realloc(m_padfWeightsBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(GDT_Float64),
                             bAllocSuccess);
-                    Realloc(m_pabyWeightsMaskBuf,
-                            nWindowSize *
-                                GDALGetDataTypeSizeBytes(m_maskDataType),
+                    Realloc(m_pabyWeightsMaskBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(m_maskDataType),
                             bAllocSuccess);
                 }
                 if (!bAllocSuccess)
@@ -1200,23 +1244,23 @@ class GDALZonalStatsImpl
 
             if (pfnProgress != nullptr)
             {
-                pfnProgress(static_cast<double>(iWindow + 1) /
-                                static_cast<double>(windows.size()),
+                ++iWindow;
+                pfnProgress(static_cast<double>(iWindow) /
+                                static_cast<double>(nIterCount),
                             "", pProgressData);
             }
         }
 
         for (const auto &[dfValue, zoneStats] : stats)
         {
-            std::unique_ptr<OGRFeature> poDstFeature(
-                OGRFeature::CreateFeature(poDstLayer->GetLayerDefn()));
-            poDstFeature->SetField("value", dfValue);
+            OGRFeature oFeature(poDstLayer->GetLayerDefn());
+            oFeature.SetField("value", dfValue);
             for (size_t i = 0; i < m_options.bands.size(); i++)
             {
                 const auto iBand = m_options.bands[i];
-                SetStatFields(*poDstFeature, iBand, zoneStats[i]);
+                SetStatFields(oFeature, iBand, zoneStats[i]);
             }
-            if (poDstLayer->CreateFeature(poDstFeature.get()) != OGRERR_NONE)
+            if (poDstLayer->CreateFeature(&oFeature) != OGRERR_NONE)
             {
                 return false;
             }
@@ -1289,7 +1333,7 @@ class GDALZonalStatsImpl
 
                 const OGRGeometry *poGeom = features.back()->GetGeometryRef();
 
-                if (poGeom == nullptr)
+                if (poGeom == nullptr || poGeom->IsEmpty())
                 {
                     continue;
                 }
@@ -1325,25 +1369,21 @@ class GDALZonalStatsImpl
         { static_cast<std::vector<void *> *>(hits)->push_back(hit); };
         size_t nBufSize = 0;
 
-        std::vector<GDALRasterWindow> windows;
-        for (GDALRasterWindow oWindow :
-             m_src.GetRasterBand(m_options.bands.front())
-                 ->IterateWindows(m_maxCells))
+        const auto windowIteratorWrapper =
+            m_src.GetRasterBand(m_options.bands.front())
+                ->IterateWindows(m_maxCells);
+        const auto nIterCount = windowIteratorWrapper.count();
+        uint64_t iWindow = 0;
+        for (const auto &oChunkWindow : windowIteratorWrapper)
         {
-            windows.push_back(oWindow);
-        }
-
-        for (size_t iWindow = 0; iWindow < windows.size(); iWindow++)
-        {
-            const GDALRasterWindow &oChunkWindow = windows[iWindow];
             const size_t nWindowSize =
                 static_cast<size_t>(oChunkWindow.nXSize) *
                 static_cast<size_t>(oChunkWindow.nYSize);
+            const OGREnvelope oChunkExtent = ToEnvelope(oChunkWindow);
 
             aiHits.clear();
 
             {
-                OGREnvelope oChunkExtent = ToEnvelope(oChunkWindow);
                 GEOSGeometry *poEnv = CreateGEOSEnvelope(oChunkExtent);
                 if (poEnv == nullptr)
                 {
@@ -1360,38 +1400,31 @@ class GDALZonalStatsImpl
                 if (nBufSize < nWindowSize)
                 {
                     bool bAllocSuccess = true;
-                    Realloc(m_pabyValuesBuf,
-                            nWindowSize *
-                                GDALGetDataTypeSizeBytes(m_workingDataType),
+                    Realloc(m_pabyValuesBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(m_workingDataType),
                             bAllocSuccess);
-                    Realloc(m_pabyCoverageBuf,
-                            nWindowSize *
-                                GDALGetDataTypeSizeBytes(m_coverageDataType),
+                    Realloc(m_pabyCoverageBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(m_coverageDataType),
                             bAllocSuccess);
-                    Realloc(m_pabyMaskBuf,
-                            nWindowSize *
-                                GDALGetDataTypeSizeBytes(m_maskDataType),
+                    Realloc(m_pabyMaskBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(m_maskDataType),
                             bAllocSuccess);
                     if (m_stats_options.store_xy)
                     {
-                        Realloc(m_padfX,
-                                oChunkWindow.nXSize *
-                                    GDALGetDataTypeSizeBytes(GDT_Float64),
+                        Realloc(m_padfX, oChunkWindow.nXSize,
+                                GDALGetDataTypeSizeBytes(GDT_Float64),
                                 bAllocSuccess);
-                        Realloc(m_padfY,
-                                oChunkWindow.nYSize *
-                                    GDALGetDataTypeSizeBytes(GDT_Float64),
+                        Realloc(m_padfY, oChunkWindow.nYSize,
+                                GDALGetDataTypeSizeBytes(GDT_Float64),
                                 bAllocSuccess);
                     }
                     if (m_weights != nullptr)
                     {
-                        Realloc(m_padfWeightsBuf,
-                                nWindowSize *
-                                    GDALGetDataTypeSizeBytes(GDT_Float64),
+                        Realloc(m_padfWeightsBuf, nWindowSize,
+                                GDALGetDataTypeSizeBytes(GDT_Float64),
                                 bAllocSuccess);
-                        Realloc(m_pabyWeightsMaskBuf,
-                                nWindowSize *
-                                    GDALGetDataTypeSizeBytes(m_maskDataType),
+                        Realloc(m_pabyWeightsMaskBuf, nWindowSize,
+                                GDALGetDataTypeSizeBytes(m_maskDataType),
                                 bAllocSuccess);
                     }
                     if (!bAllocSuccess)
@@ -1445,22 +1478,36 @@ class GDALZonalStatsImpl
                     OGREnvelope oGeomExtent;
                     for (const void *hit : aiHits)
                     {
-                        size_t iHit = reinterpret_cast<size_t>(hit);
+                        const size_t iHit = reinterpret_cast<size_t>(hit);
+                        const auto poGeom = features[iHit]->GetGeometryRef();
 
                         // Trim the chunk window to the portion that intersects
                         // the geometry being processed.
-                        features[iHit]->GetGeometryRef()->getEnvelope(
-                            &oGeomExtent);
+                        poGeom->getEnvelope(&oGeomExtent);
+                        oGeomExtent.Intersect(oChunkExtent);
                         if (!m_srcInvGT.Apply(oGeomExtent, oGeomWindow))
                         {
                             return false;
                         }
-                        TrimWindow(oGeomWindow, oChunkWindow);
-                        OGREnvelope oTrimmedEnvelope = ToEnvelope(oGeomWindow);
+                        oGeomWindow.nXOff =
+                            std::max(oGeomWindow.nXOff, oChunkWindow.nXOff);
+                        oGeomWindow.nYOff =
+                            std::max(oGeomWindow.nYOff, oChunkWindow.nYOff);
+                        oGeomWindow.nXSize =
+                            std::min(oGeomWindow.nXSize,
+                                     oChunkWindow.nXOff + oChunkWindow.nXSize -
+                                         oGeomWindow.nXOff);
+                        oGeomWindow.nYSize =
+                            std::min(oGeomWindow.nYSize,
+                                     oChunkWindow.nYOff + oChunkWindow.nYSize -
+                                         oGeomWindow.nYOff);
+                        if (oGeomWindow.nXSize <= 0 || oGeomWindow.nYSize <= 0)
+                            continue;
+                        const OGREnvelope oTrimmedEnvelope =
+                            ToEnvelope(oGeomWindow);
 
                         if (!CalculateCoverage(
-                                features[iHit]->GetGeometryRef(),
-                                oTrimmedEnvelope, oGeomWindow.nXSize,
+                                poGeom, oTrimmedEnvelope, oGeomWindow.nXSize,
                                 oGeomWindow.nYSize, m_pabyCoverageBuf.get()))
                         {
                             return false;
@@ -1510,13 +1557,16 @@ class GDALZonalStatsImpl
 
             if (pfnProgress != nullptr)
             {
-                pfnProgress(static_cast<double>(iWindow + 1) /
-                                static_cast<double>(windows.size()),
+                ++iWindow;
+                pfnProgress(static_cast<double>(iWindow) /
+                                static_cast<double>(nIterCount),
                             "", pProgressData);
             }
         }
 
         OGRLayer *poDstLayer = GetOutputLayer(false);
+        if (!poDstLayer)
+            return false;
 
         for (size_t iFeature = 0; iFeature < features.size(); iFeature++)
         {
@@ -1570,17 +1620,26 @@ class GDALZonalStatsImpl
 
         OGRLayer *poSrcLayer = std::get<OGRLayer *>(m_zones);
         OGRLayer *poDstLayer = GetOutputLayer(false);
+        if (!poDstLayer)
+            return false;
         size_t i = 0;
         auto nFeatures = poSrcLayer->GetFeatureCount();
+        GDALRasterWindow oRasterWindow;
+        oRasterWindow.nXOff = 0;
+        oRasterWindow.nYOff = 0;
+        oRasterWindow.nXSize = m_src.GetRasterXSize();
+        oRasterWindow.nYSize = m_src.GetRasterYSize();
+        const OGREnvelope oRasterExtent = ToEnvelope(oRasterWindow);
 
         for (const auto &poFeature : *poSrcLayer)
         {
             const auto *poGeom = poFeature->GetGeometryRef();
 
-            if (poGeom == nullptr)
+            oWindow.nXSize = 0;
+            oWindow.nYSize = 0;
+            if (poGeom == nullptr || poGeom->IsEmpty())
             {
-                oWindow.nXSize = 0;
-                oWindow.nYSize = 0;
+                // do nothing
             }
             else if (poGeom->getDimension() != 2)
             {
@@ -1591,13 +1650,26 @@ class GDALZonalStatsImpl
             else
             {
                 poGeom->getEnvelope(&oGeomExtent);
-
-                if (!m_srcInvGT.Apply(oGeomExtent, oWindow))
+                if (oGeomExtent.Intersects(oRasterExtent))
                 {
-                    return false;
+                    oGeomExtent.Intersect(oRasterExtent);
+                    if (!m_srcInvGT.Apply(oGeomExtent, oWindow))
+                    {
+                        return false;
+                    }
+                    oWindow.nXOff =
+                        std::max(oWindow.nXOff, oRasterWindow.nXOff);
+                    oWindow.nYOff =
+                        std::max(oWindow.nYOff, oRasterWindow.nYOff);
+                    oWindow.nXSize =
+                        std::min(oWindow.nXSize, oRasterWindow.nXOff +
+                                                     oRasterWindow.nXSize -
+                                                     oWindow.nXOff);
+                    oWindow.nYSize =
+                        std::min(oWindow.nYSize, oRasterWindow.nYOff +
+                                                     oRasterWindow.nYSize -
+                                                     oWindow.nYOff);
                 }
-
-                TrimWindowToRaster(oWindow, m_src);
             }
 
             std::unique_ptr<OGRFeature> poDstFeature(
@@ -1628,40 +1700,33 @@ class GDALZonalStatsImpl
                 if (nBufSize < nWindowSize)
                 {
                     bool bAllocSuccess = true;
-                    Realloc(m_pabyValuesBuf,
-                            nWindowSize *
-                                GDALGetDataTypeSizeBytes(m_workingDataType),
+                    Realloc(m_pabyValuesBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(m_workingDataType),
                             bAllocSuccess);
-                    Realloc(m_pabyCoverageBuf,
-                            nWindowSize *
-                                GDALGetDataTypeSizeBytes(m_coverageDataType),
+                    Realloc(m_pabyCoverageBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(m_coverageDataType),
                             bAllocSuccess);
-                    Realloc(m_pabyMaskBuf,
-                            nWindowSize *
-                                GDALGetDataTypeSizeBytes(m_maskDataType),
+                    Realloc(m_pabyMaskBuf, nWindowSize,
+                            GDALGetDataTypeSizeBytes(m_maskDataType),
                             bAllocSuccess);
 
                     if (m_stats_options.store_xy)
                     {
-                        Realloc(m_padfX,
-                                oWindow.nXSize *
-                                    GDALGetDataTypeSizeBytes(GDT_Float64),
+                        Realloc(m_padfX, oWindow.nXSize,
+                                GDALGetDataTypeSizeBytes(GDT_Float64),
                                 bAllocSuccess);
-                        Realloc(m_padfY,
-                                oWindow.nYSize *
-                                    GDALGetDataTypeSizeBytes(GDT_Float64),
+                        Realloc(m_padfY, oWindow.nYSize,
+                                GDALGetDataTypeSizeBytes(GDT_Float64),
                                 bAllocSuccess);
                     }
 
                     if (m_weights != nullptr)
                     {
-                        Realloc(m_padfWeightsBuf,
-                                nWindowSize *
-                                    GDALGetDataTypeSizeBytes(GDT_Float64),
+                        Realloc(m_padfWeightsBuf, nWindowSize,
+                                GDALGetDataTypeSizeBytes(GDT_Float64),
                                 bAllocSuccess);
-                        Realloc(m_pabyWeightsMaskBuf,
-                                nWindowSize *
-                                    GDALGetDataTypeSizeBytes(m_maskDataType),
+                        Realloc(m_pabyWeightsMaskBuf, nWindowSize,
+                                GDALGetDataTypeSizeBytes(m_maskDataType),
                                 bAllocSuccess);
                     }
                     if (!bAllocSuccess)
@@ -1819,19 +1884,19 @@ class GDALZonalStatsImpl
                 return false;
             }
 
-            if (!GEOSGridIntersectionFractions_r(
-                    m_geosContext, poGeosGeom, oSnappedGeomExtent.MinX,
-                    oSnappedGeomExtent.MinY, oSnappedGeomExtent.MaxX,
-                    oSnappedGeomExtent.MaxY, nXSize, nYSize,
-                    reinterpret_cast<float *>(pabyCoverageBuf)))
+            const bool bRet = GEOSGridIntersectionFractions_r(
+                m_geosContext, poGeosGeom, oSnappedGeomExtent.MinX,
+                oSnappedGeomExtent.MinY, oSnappedGeomExtent.MaxX,
+                oSnappedGeomExtent.MaxY, nXSize, nYSize,
+                reinterpret_cast<float *>(pabyCoverageBuf));
+            if (!bRet)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
                          "Failed to calculate pixel intersection fractions.");
-                return false;
             }
             GEOSGeom_destroy_r(m_geosContext, poGeosGeom);
 
-            return true;
+            return bRet;
         }
         else
 #endif
@@ -1841,7 +1906,8 @@ class GDALZonalStatsImpl
             oCoverageGT.xscale = m_srcGT.xscale;
             oCoverageGT.xrot = 0;
 
-            oCoverageGT.yorig = oSnappedGeomExtent.MaxY;
+            oCoverageGT.yorig = m_srcGT.yscale < 0 ? oSnappedGeomExtent.MaxY
+                                                   : oSnappedGeomExtent.MinY;
             oCoverageGT.yscale = m_srcGT.yscale;
             oCoverageGT.yrot = 0;
 
@@ -1868,7 +1934,7 @@ class GDALZonalStatsImpl
             OGRGeometryH hGeom =
                 OGRGeometry::ToHandle(const_cast<OGRGeometry *>(poGeom));
 
-            auto eErr = GDALRasterizeGeometries(
+            const auto eErr = GDALRasterizeGeometries(
                 GDALDataset::ToHandle(poMemDS.get()), 1, &nBand, 1, &hGeom,
                 nullptr, nullptr, &dfBurnValue, aosOptions.List(), nullptr,
                 nullptr);
@@ -1896,11 +1962,11 @@ class GDALZonalStatsImpl
     GDALDataset &m_src;
     GDALDataset *m_weights;
     GDALDataset &m_dst;
-    BandOrLayer m_zones;
+    const BandOrLayer m_zones;
 
     const GDALDataType m_coverageDataType;
-    const GDALDataType m_workingDataType;
-    const GDALDataType m_maskDataType;
+    const GDALDataType m_workingDataType = GDT_Float64;
+    const GDALDataType m_maskDataType = GDT_Byte;
     static constexpr GDALDataType m_zonesDataType = GDT_Float64;
 
     GDALGeoTransform m_srcGT{};
@@ -1911,16 +1977,16 @@ class GDALZonalStatsImpl
 
     size_t m_maxCells{0};
 
-    static constexpr auto NUM_VALID_STATS = Stat::INVALID;
-    std::map<int, std::array<int, NUM_VALID_STATS>> m_statFields{};
+    static constexpr auto NUM_STATS = Stat::INVALID + 1;
+    std::map<int, std::array<int, NUM_STATS>> m_statFields{};
 
-    std::unique_ptr<GByte, decltype(&CPLFree)> m_pabyCoverageBuf;
-    std::unique_ptr<GByte, decltype(&CPLFree)> m_pabyMaskBuf;
-    std::unique_ptr<GByte, decltype(&CPLFree)> m_pabyValuesBuf;
-    std::unique_ptr<double, decltype(&CPLFree)> m_padfWeightsBuf;
-    std::unique_ptr<GByte, decltype(&CPLFree)> m_pabyWeightsMaskBuf;
-    std::unique_ptr<double, decltype(&CPLFree)> m_padfX;
-    std::unique_ptr<double, decltype(&CPLFree)> m_padfY;
+    std::unique_ptr<GByte, VSIFreeReleaser> m_pabyCoverageBuf{};
+    std::unique_ptr<GByte, VSIFreeReleaser> m_pabyMaskBuf{};
+    std::unique_ptr<GByte, VSIFreeReleaser> m_pabyValuesBuf{};
+    std::unique_ptr<double, VSIFreeReleaser> m_padfWeightsBuf{};
+    std::unique_ptr<GByte, VSIFreeReleaser> m_pabyWeightsMaskBuf{};
+    std::unique_ptr<double, VSIFreeReleaser> m_padfX{};
+    std::unique_ptr<double, VSIFreeReleaser> m_padfY{};
 
 #ifdef HAVE_GEOS
     GEOSContextHandle_t m_geosContext{nullptr};
@@ -1949,9 +2015,15 @@ static CPLErr GDALZonalStats(GDALDataset &srcDataset, GDALDataset *poWeights,
         {
             nZonesBand = 1;
         }
-        else
+        else if (zonesDataset.GetLayerCount() > 0)
         {
             osZonesLayer = zonesDataset.GetLayer(0)->GetName();
+        }
+        else
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Zones dataset has no band or layer.");
+            return CE_Failure;
         }
     }
 
@@ -1959,6 +2031,12 @@ static CPLErr GDALZonalStats(GDALDataset &srcDataset, GDALDataset *poWeights,
 
     if (nZonesBand > 0)
     {
+        if (nZonesBand > zonesDataset.GetRasterCount())
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "Invalid zones band: %d",
+                     nZonesBand);
+            return CE_Failure;
+        }
         GDALRasterBand *poZonesBand = zonesDataset.GetRasterBand(nZonesBand);
         if (poZonesBand == nullptr)
         {
@@ -2041,6 +2119,7 @@ static CPLErr GDALZonalStats(GDALDataset &srcDataset, GDALDataset *poWeights,
  *   WEIGHTS_BAND: the band to read from WeightsDS
  *   ZONES_BAND: the band to read from hZonesDS, if hZonesDS is a raster
  *   ZONES_LAYER: the layer to read from hZonesDS, if hZonesDS is a vector
+ *   LCO_{key}: layer creation option {key}
  *
  * @param pfnProgress optional progress reporting callback
  * @param pProgressArg optional data for progress callback
