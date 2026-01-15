@@ -111,7 +111,7 @@ class OGRFeatherLayer final : public OGRArrowLayer
     GIntBig GetFeatureCount(int bForce) override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain = "") override;
-    char **GetMetadata(const char *pszDomain = "") override;
+    CSLConstList GetMetadata(const char *pszDomain = "") override;
 
     GDALDataset *GetDataset() override;
 
@@ -214,7 +214,7 @@ class OGRFeatherWriterDataset final : public GDALPamDataset
 
     ~OGRFeatherWriterDataset() override;
 
-    CPLErr Close() override;
+    CPLErr Close(GDALProgressFunc = nullptr, void * = nullptr) override;
 
     arrow::MemoryPool *GetMemoryPool() const
     {
