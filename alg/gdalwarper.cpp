@@ -265,12 +265,14 @@ CPLErr CPL_STDCALL GDALCreateAndReprojectImage(
     int nPixels = 0;
     int nLines = 0;
 
-    if (GDALSuggestedWarpOutput(hSrcDS, GDALGenImgProjTransform, hTransformArg,
-                                adfDstGeoTransform, &nPixels,
-                                &nLines) != CE_None)
-        return CE_Failure;
+    CPLErr eErr =
+        GDALSuggestedWarpOutput(hSrcDS, GDALGenImgProjTransform, hTransformArg,
+                                adfDstGeoTransform, &nPixels, &nLines);
 
     GDALDestroyGenImgProjTransformer(hTransformArg);
+
+    if (eErr != CE_None)
+        return eErr;
 
     /* -------------------------------------------------------------------- */
     /*      Create the output file.                                         */
@@ -292,9 +294,9 @@ CPLErr CPL_STDCALL GDALCreateAndReprojectImage(
     /* -------------------------------------------------------------------- */
     /*      Perform the reprojection.                                       */
     /* -------------------------------------------------------------------- */
-    CPLErr eErr = GDALReprojectImage(
-        hSrcDS, pszSrcWKT, hDstDS, pszDstWKT, eResampleAlg, dfWarpMemoryLimit,
-        dfMaxError, pfnProgress, pProgressArg, psOptions);
+    eErr = GDALReprojectImage(hSrcDS, pszSrcWKT, hDstDS, pszDstWKT,
+                              eResampleAlg, dfWarpMemoryLimit, dfMaxError,
+                              pfnProgress, pProgressArg, psOptions);
 
     GDALClose(hDstDS);
 
@@ -1066,7 +1068,7 @@ CPLErr GDALWarpDstAlphaMasker(void *pMaskFuncArg, int nBandCount,
 }
 
 /************************************************************************/
-/*                      GDALWarpGetOptionList()                         */
+/*                       GDALWarpGetOptionList()                        */
 /************************************************************************/
 
 /** Return a XML string describing options accepted by
@@ -1647,7 +1649,7 @@ void InitNoData(int nBandCount, double **ppdNoDataReal, double dDataReal)
 }  // namespace
 
 /************************************************************************/
-/*                      GDALWarpInitDstNoDataReal()                     */
+/*                     GDALWarpInitDstNoDataReal()                      */
 /************************************************************************/
 
 /**
@@ -1666,7 +1668,7 @@ void CPL_STDCALL GDALWarpInitDstNoDataReal(GDALWarpOptions *psOptionsIn,
 }
 
 /************************************************************************/
-/*                      GDALWarpInitSrcNoDataReal()                     */
+/*                     GDALWarpInitSrcNoDataReal()                      */
 /************************************************************************/
 
 /**
@@ -1685,7 +1687,7 @@ void CPL_STDCALL GDALWarpInitSrcNoDataReal(GDALWarpOptions *psOptionsIn,
 }
 
 /************************************************************************/
-/*                      GDALWarpInitNoDataReal()                        */
+/*                       GDALWarpInitNoDataReal()                       */
 /************************************************************************/
 
 /**
@@ -1704,7 +1706,7 @@ void CPL_STDCALL GDALWarpInitNoDataReal(GDALWarpOptions *psOptionsIn,
 }
 
 /************************************************************************/
-/*                      GDALWarpInitDstNoDataImag()                     */
+/*                     GDALWarpInitDstNoDataImag()                      */
 /************************************************************************/
 
 /**
@@ -1723,7 +1725,7 @@ void CPL_STDCALL GDALWarpInitDstNoDataImag(GDALWarpOptions *psOptionsIn,
 }
 
 /************************************************************************/
-/*                      GDALWarpInitSrcNoDataImag()                     */
+/*                     GDALWarpInitSrcNoDataImag()                      */
 /************************************************************************/
 
 /**
@@ -1742,7 +1744,7 @@ void CPL_STDCALL GDALWarpInitSrcNoDataImag(GDALWarpOptions *psOptionsIn,
 }
 
 /************************************************************************/
-/*                      GDALWarpResolveWorkingDataType()                */
+/*                   GDALWarpResolveWorkingDataType()                   */
 /************************************************************************/
 
 /**
@@ -1873,7 +1875,7 @@ void CPL_STDCALL GDALWarpResolveWorkingDataType(GDALWarpOptions *psOptions)
 }
 
 /************************************************************************/
-/*                      GDALWarpInitDefaultBandMapping()                */
+/*                   GDALWarpInitDefaultBandMapping()                   */
 /************************************************************************/
 
 /**
@@ -2451,7 +2453,7 @@ GDALWarpOptions *CPL_STDCALL GDALDeserializeWarpOptions(CPLXMLNode *psTree)
 }
 
 /************************************************************************/
-/*                        GDALGetWarpResampleAlg()                      */
+/*                       GDALGetWarpResampleAlg()                       */
 /************************************************************************/
 
 /** Return a GDALResampleAlg from a string */

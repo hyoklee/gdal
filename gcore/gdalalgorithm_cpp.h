@@ -17,7 +17,7 @@
 
 /************************************************************************/
 /************************************************************************/
-/*                      GDAL Algorithm C++ API                          */
+/*                        GDAL Algorithm C++ API                        */
 /************************************************************************/
 /************************************************************************/
 
@@ -135,8 +135,13 @@ constexpr const char *GDAL_ARG_NAME_QUIET = "quiet";
 constexpr const char *GDAL_ALG_DCAP_RASTER_OR_MULTIDIM_RASTER =
     "raster-or-multidim-raster";
 
+/** Placeholder value that can be set as a dataset name in a pipeline step
+ * to express the dataset computed by the previous step.
+ */
+constexpr const char *GDAL_DATASET_PIPELINE_PLACEHOLDER_VALUE = "_PIPE_";
+
 /************************************************************************/
-/*                           GDALArgDatasetValue                        */
+/*                         GDALArgDatasetValue                          */
 /************************************************************************/
 
 /** Return the string representation of GDALArgDatasetType */
@@ -291,7 +296,7 @@ class CPL_DLL GDALArgDatasetValue final
 };
 
 /************************************************************************/
-/*                           GDALAlgorithmArgDecl                       */
+/*                         GDALAlgorithmArgDecl                         */
 /************************************************************************/
 
 /** Argument declaration.
@@ -616,6 +621,15 @@ class CPL_DLL GDALAlgorithmArgDecl final
         return *this;
     }
 
+    /** Sets the maximum number of characters (for arguments of type
+     * GAAT_STRING and GAAT_STRING_LIST)
+     */
+    GDALAlgorithmArgDecl &SetMaxCharCount(int count)
+    {
+        m_maxCharCount = count;
+        return *this;
+    }
+
     //! @cond Doxygen_Suppress
     GDALAlgorithmArgDecl &SetHiddenChoices()
     {
@@ -830,6 +844,14 @@ class CPL_DLL GDALAlgorithmArgDecl final
     inline int GetMinCharCount() const
     {
         return m_minCharCount;
+    }
+
+    /** Return the maximum number of characters (for arguments of type
+     * GAAT_STRING and GAAT_STRING_LIST)
+     */
+    inline int GetMaxCharCount() const
+    {
+        return m_maxCharCount;
     }
 
     /** Return whether the argument is required. Defaults to false.
@@ -1130,6 +1152,7 @@ class CPL_DLL GDALAlgorithmArgDecl final
     bool m_minValIsIncluded = false;
     bool m_maxValIsIncluded = false;
     int m_minCharCount = 0;
+    int m_maxCharCount = std::numeric_limits<int>::max();
     GDALArgDatasetType m_datasetType =
         GDAL_OF_RASTER | GDAL_OF_VECTOR | GDAL_OF_MULTIDIM_RASTER;
 
@@ -1320,6 +1343,12 @@ class CPL_DLL GDALAlgorithmArg /* non-final */
     inline int GetMinCharCount() const
     {
         return m_decl.GetMinCharCount();
+    }
+
+    /** Alias for GDALAlgorithmArgDecl::GetMaxCharCount() */
+    inline int GetMaxCharCount() const
+    {
+        return m_decl.GetMaxCharCount();
     }
 
     /** Return whether the argument value has been explicitly set with Set() */
@@ -1756,7 +1785,7 @@ class CPL_DLL GDALAlgorithmArg /* non-final */
 };
 
 /************************************************************************/
-/*                     GDALInConstructionAlgorithmArg                   */
+/*                    GDALInConstructionAlgorithmArg                    */
 /************************************************************************/
 
 //! @cond Doxygen_Suppress
@@ -1980,6 +2009,13 @@ class CPL_DLL GDALInConstructionAlgorithmArg final : public GDALAlgorithmArg
         return *this;
     }
 
+    /** Alias for GDALAlgorithmArgDecl::SetMaxCharCount() */
+    GDALInConstructionAlgorithmArg &SetMaxCharCount(int count)
+    {
+        m_decl.SetMaxCharCount(count);
+        return *this;
+    }
+
     /** Alias for GDALAlgorithmArgDecl::SetHidden() */
     GDALInConstructionAlgorithmArg &SetHidden()
     {
@@ -2126,7 +2162,7 @@ class CPL_DLL GDALInConstructionAlgorithmArg final : public GDALAlgorithmArg
 };
 
 /************************************************************************/
-/*                      GDALAlgorithmRegistry                           */
+/*                        GDALAlgorithmRegistry                         */
 /************************************************************************/
 
 /** Registry of GDAL algorithms.
@@ -2610,6 +2646,11 @@ class CPL_DLL GDALAlgorithmRegistry
     /** Whether ValidateArguments() should be skipped during ParseCommandLineArguments() */
     bool m_skipValidationInParseCommandLine = false;
 
+    /** Whether the implicit input dataset of non-initial steps in a pipeline
+     * can be omitted.
+     */
+    bool m_inputDatasetCanBeOmitted = false;
+
     friend class GDALAlgorithmRegistry;  // to set m_aliases
     /** Algorithm alias names */
     std::vector<std::string> m_aliases{};
@@ -2620,7 +2661,7 @@ class CPL_DLL GDALAlgorithmRegistry
     /** Whether this algorithm is run to generated a streamed output dataset. */
     bool m_executionForStreamOutput = false;
 
-    /** Whether this algorithm should be hidden (but can be instantiate if name known) */
+    /** Whether this algorithm should be hidden (but can be instantiated if name known) */
     bool m_hidden = false;
 
     /** Map a dataset name to its object (used for nested pipelines) */
@@ -2985,6 +3026,10 @@ class CPL_DLL GDALAlgorithmRegistry
     std::pair<std::vector<std::pair<GDALAlgorithmArg *, std::string>>, size_t>
     GetArgNamesForCLI() const;
 
+    /** Get the indices of fields to be included, recognizing the special values "ALL" and "NONE" */
+    static bool GetFieldIndices(const std::vector<std::string> &osFieldNames,
+                                OGRLayerH hLayer, std::vector<int> &anIndices);
+
     //! @cond Doxygen_Suppress
     std::string GetUsageForCLIEnd() const;
     //! @endcond
@@ -3093,7 +3138,7 @@ struct GDALAlgorithmHS
 };
 
 /************************************************************************/
-/*                       GDALContainerAlgorithm                         */
+/*                        GDALContainerAlgorithm                        */
 /************************************************************************/
 
 class CPL_DLL GDALContainerAlgorithm : public GDALAlgorithm
@@ -3113,7 +3158,7 @@ class CPL_DLL GDALContainerAlgorithm : public GDALAlgorithm
 //! @endcond
 
 /************************************************************************/
-/*                   GDALGlobalAlgorithmRegistry                        */
+/*                     GDALGlobalAlgorithmRegistry                      */
 /************************************************************************/
 
 /** Global registry of GDAL algorithms.

@@ -880,6 +880,13 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_vector_combine",
+        "gdal-vector-combine",
+        "Combine geometries into geometry collections",
+        [author_dbaston],
+        1,
+    ),
+    (
         "programs/gdal_vector_concat",
         "gdal-vector-concat",
         "Concatenate vector datasets",
@@ -891,6 +898,13 @@ man_pages = [
         "gdal-vector-convert",
         "Convert a vector dataset",
         [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_vector_dissolve",
+        "gdal-vector-dissolve",
+        "Unions the elements of each feature's geometry.",
+        [author_dbaston],
         1,
     ),
     (
@@ -1437,7 +1451,7 @@ latex_elements = {
     + substitutefont_package
     + "}",
     "babel": "\\usepackage[russian,main=english]{babel}\n\\selectlanguage{english}",
-    "fontenc": "\\usepackage[LGR,X2,T1]{fontenc}"
+    "fontenc": "\\usepackage[LGR,X2,T1]{fontenc}",
     # Latex figure (float) alignment
     #'figure_align': 'htbp',
 }
@@ -1449,6 +1463,12 @@ latex_documents = [
 latex_toplevel_sectioning = "chapter"
 
 latex_logo = "../images/gdalicon_big.png"
+# Disable module and domain indices in PDF output.
+# Python API documentation is not included in the PDF, so keeping them
+# results in a dummy and confusing "Python Module Index" section.
+latex_use_modindex = False
+latex_domain_indices = False
+
 
 # If true, show URL addresses after external links.
 # man_show_urls = False

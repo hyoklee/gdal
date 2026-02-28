@@ -156,14 +156,20 @@ def test_ogr_basic_5():
 
     ds = ogr.Open("data/poly.shp")
     lyr = ds.GetLayerByName("poly")
+    assert lyr.GetAttributeFilter() is None, "unexpected initial attribute filter."
 
     lyr.SetAttributeFilter("FID = 3")
     lyr.ResetReading()
+
+    assert (
+        lyr.GetAttributeFilter() == "FID = 3"
+    ), "GetAttributeFilter() returns wrong value."
 
     feat1 = lyr.GetNextFeature()
     feat2 = lyr.GetNextFeature()
 
     lyr.SetAttributeFilter(None)
+    assert lyr.GetAttributeFilter() is None, "unexpected attribute filter."
 
     assert feat1 is not None and feat2 is None, "unexpected result count."
 
@@ -941,7 +947,7 @@ def test_ogr_basic_test_future_warning_exceptions():
         "ogr.Open('data/poly.shp');" ' " '
     )
     try:
-        (_, err) = gdaltest.runexternal_out_and_err(cmd, encoding="UTF-8")
+        _, err = gdaltest.runexternal_out_and_err(cmd, encoding="UTF-8")
     except Exception as e:
         pytest.skip("got exception %s" % str(e))
     assert "FutureWarning: Neither ogr.UseExceptions()" in err

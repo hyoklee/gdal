@@ -2631,7 +2631,7 @@ def test_ogr_parquet_arrow_stream_fast_attribute_filter_pyarrow(
         )
     table = pa.Table.from_batches(batches)
     table.validate(full=True)
-    for (col, full_col) in zip(table, full_table):
+    for col, full_col in zip(table, full_table):
         assert col[0] == full_col[1]
         assert col[1] == full_col[3]
 
@@ -4273,6 +4273,22 @@ def test_ogr_parquet_writing_arrow_json_extension(tmp_vsimem):
     assert lyr.GetLayerDefn().GetFieldDefn(0).GetSubType() == ogr.OFSTJSON
     f = lyr.GetNextFeature()
     assert f["extension_json"] == '{"foo":"bar"}'
+
+
+###############################################################################
+
+
+@pytest.mark.parametrize("check_with_geoarrow_pyarrow", [False, True])
+@gdaltest.enable_exceptions()
+def test_ogr_parquet_read_geoarrow_without_geoparquet(check_with_geoarrow_pyarrow):
+
+    if check_with_geoarrow_pyarrow:
+        pytest.importorskip("geoarrow.pyarrow")
+
+    ds = ogr.Open("data/parquet/poly_geoarrow_polygon_not_geoparquet.parquet")
+    lyr = ds.GetLayer(0)
+    assert lyr.GetGeometryColumn() == "geometry"
+    assert lyr.GetGeomType() == ogr.wkbPolygon
 
 
 ###############################################################################

@@ -291,7 +291,7 @@ class CPL_DLL OGRDefaultConstGeometryVisitor : public IOGRConstGeometryVisitor
 };
 
 /************************************************************************/
-/*                  OGRGeomCoordinateBinaryPrecision                    */
+/*                   OGRGeomCoordinateBinaryPrecision                   */
 /************************************************************************/
 
 /** Geometry coordinate precision for a binary representation.
@@ -315,7 +315,7 @@ class CPL_DLL OGRGeomCoordinateBinaryPrecision
 };
 
 /************************************************************************/
-/*                           OGRwkbExportOptions                        */
+/*                         OGRwkbExportOptions                          */
 /************************************************************************/
 
 /** WKB export options.
@@ -506,8 +506,8 @@ class CPL_DLL OGRGeometry
     static GEOSContextHandle_t createGEOSContext();
     static void freeGEOSContext(GEOSContextHandle_t hGEOSCtxt);
     GEOSGeom
-    exportToGEOS(GEOSContextHandle_t hGEOSCtxt,
-                 bool bRemoveEmptyParts = false) const CPL_WARN_UNUSED_RESULT;
+    exportToGEOS(GEOSContextHandle_t hGEOSCtxt, bool bRemoveEmptyParts = false,
+                 bool bAddPointsIfNeeded = false) const CPL_WARN_UNUSED_RESULT;
     virtual OGRBoolean hasCurveGeometry(int bLookForNonLinear = FALSE) const;
     virtual OGRGeometry *getCurveGeometry(
         const char *const *papszOptions = nullptr) const CPL_WARN_UNUSED_RESULT;
@@ -1248,7 +1248,7 @@ class CPL_DLL OGRPoint : public OGRGeometry
 };
 
 /************************************************************************/
-/*                            OGRPointIterator                          */
+/*                           OGRPointIterator                           */
 /************************************************************************/
 
 /**
@@ -1458,7 +1458,7 @@ class CPL_DLL OGRIteratedPoint : public OGRPoint
 };
 
 /************************************************************************/
-/*                             OGRSimpleCurve                           */
+/*                            OGRSimpleCurve                            */
 /************************************************************************/
 
 /**
@@ -1903,7 +1903,7 @@ class CPL_DLL OGRLinearRing : public OGRLineString
 };
 
 /************************************************************************/
-/*                         OGRCircularString                            */
+/*                          OGRCircularString                           */
 /************************************************************************/
 
 /**
@@ -2023,7 +2023,7 @@ class CPL_DLL OGRCircularString : public OGRSimpleCurve
 };
 
 /************************************************************************/
-/*                           OGRCurveCollection                         */
+/*                          OGRCurveCollection                          */
 /************************************************************************/
 
 /**
@@ -2137,7 +2137,7 @@ class CPL_DLL OGRCurveCollection
 //! @endcond
 
 /************************************************************************/
-/*                            OGRCompoundCurve                          */
+/*                           OGRCompoundCurve                           */
 /************************************************************************/
 
 /**
@@ -2398,7 +2398,7 @@ class CPL_DLL OGRSurface : public OGRGeometry
 };
 
 /************************************************************************/
-/*                          OGRCurvePolygon                             */
+/*                           OGRCurvePolygon                            */
 /************************************************************************/
 
 /**
@@ -2807,7 +2807,7 @@ inline OGRPolygon::ChildType **end(OGRPolygon *poGeom)
 //! @endcond
 
 /************************************************************************/
-/*                              OGRTriangle                             */
+/*                             OGRTriangle                              */
 /************************************************************************/
 
 /**
@@ -3025,6 +3025,7 @@ class CPL_DLL OGRGeometryCollection : public OGRGeometry
     virtual OGRErr addGeometry(const OGRGeometry *);
     virtual OGRErr addGeometryDirectly(OGRGeometry *);
     OGRErr addGeometry(std::unique_ptr<OGRGeometry> geom);
+    OGRErr addGeometryComponents(std::unique_ptr<OGRGeometryCollection> geom);
     virtual OGRErr removeGeometry(int iIndex, int bDelete = TRUE);
     std::unique_ptr<OGRGeometry> stealGeometry(int iIndex);
 
@@ -3087,7 +3088,7 @@ inline OGRGeometryCollection::ChildType **end(OGRGeometryCollection *poGeom)
 //! @endcond
 
 /************************************************************************/
-/*                          OGRMultiSurface                             */
+/*                           OGRMultiSurface                            */
 /************************************************************************/
 
 /**
@@ -3891,7 +3892,7 @@ inline OGRMultiPoint::ChildType **end(OGRMultiPoint *poGeom)
 //! @endcond
 
 /************************************************************************/
-/*                          OGRMultiCurve                               */
+/*                            OGRMultiCurve                             */
 /************************************************************************/
 
 /**
@@ -4263,7 +4264,16 @@ class CPL_DLL OGRGeometryFactory
 
     static OGRGeometry *forceTo(OGRGeometry *poGeom,
                                 OGRwkbGeometryType eTargetType,
-                                const char *const *papszOptions = nullptr);
+                                const char *const *papszOptions = nullptr)
+#ifndef DOXYGEN_SKIP
+        CPL_WARN_DEPRECATED("Use variant that accepts and returns a "
+                            "std::unique_ptr<OGRGeometry")
+#endif
+            ;
+
+    static std::unique_ptr<OGRGeometry>
+    forceTo(std::unique_ptr<OGRGeometry> poGeom, OGRwkbGeometryType eTargetType,
+            const char *const *papszOptions = nullptr);
 
     static std::unique_ptr<OGRGeometry>
     makeCompatibleWith(std::unique_ptr<OGRGeometry>,
@@ -4308,7 +4318,7 @@ class CPL_DLL OGRGeometryFactory
 
     static OGRGeometry *transformWithOptions(
         const OGRGeometry *poSrcGeom, OGRCoordinateTransformation *poCT,
-        char **papszOptions,
+        CSLConstList papszOptions,
         const TransformWithOptionsCache &cache = TransformWithOptionsCache());
 
     static double GetDefaultArcStepSize();

@@ -33,6 +33,7 @@
 #include "cpl_float.h"
 #include "cpl_progress.h"
 #include "cpl_vsi.h"
+#include "cpl_worker_thread_pool.h"
 #include "gdal.h"
 #include "gdal_thread_pool.h"
 #include "gdalwarper.h"
@@ -77,7 +78,7 @@
 #include "gdal_priv_templates.hpp"
 
 /************************************************************************/
-/*                      GDALResampleChunk_Near()                        */
+/*                       GDALResampleChunk_Near()                       */
 /************************************************************************/
 
 template <class T>
@@ -277,7 +278,7 @@ std::vector<GDALColorEntry> ReadColorTable(const GDALColorTable &table,
 }  // unnamed  namespace
 
 /************************************************************************/
-/*                             SQUARE()                                 */
+/*                               SQUARE()                               */
 /************************************************************************/
 
 template <class T, class Tsquare = T> inline Tsquare SQUARE(T val)
@@ -286,7 +287,7 @@ template <class T, class Tsquare = T> inline Tsquare SQUARE(T val)
 }
 
 /************************************************************************/
-/*                          ComputeIntegerRMS()                         */
+/*                         ComputeIntegerRMS()                          */
 /************************************************************************/
 // Compute rms = sqrt(sumSquares / weight) in such a way that it is the
 // integer that minimizes abs(rms**2 - sumSquares / weight)
@@ -348,7 +349,7 @@ inline GUInt16 ComputeIntegerRMS_4values<GUInt16, double>(double sumSquares)
 #ifdef USE_SSE2
 
 /************************************************************************/
-/*                   QuadraticMeanByteSSE2OrAVX2()                      */
+/*                    QuadraticMeanByteSSE2OrAVX2()                     */
 /************************************************************************/
 
 #if defined(__SSE4_1__) || defined(__AVX__) || defined(USE_NEON_OPTIMIZATIONS)
@@ -540,7 +541,7 @@ static int
 }
 
 /************************************************************************/
-/*                      AverageByteSSE2OrAVX2()                         */
+/*                       AverageByteSSE2OrAVX2()                        */
 /************************************************************************/
 
 static int
@@ -622,7 +623,7 @@ AverageByteSSE2OrAVX2(int nDstXWidth, int nChunkXSize,
 }
 
 /************************************************************************/
-/*                     QuadraticMeanUInt16SSE2()                        */
+/*                      QuadraticMeanUInt16SSE2()                       */
 /************************************************************************/
 
 #ifdef __SSE3__
@@ -947,7 +948,7 @@ AverageUInt16SSE2(int nDstXWidth, int nChunkXSize,
 }
 
 /************************************************************************/
-/*                      QuadraticMeanFloatSSE2()                        */
+/*                       QuadraticMeanFloatSSE2()                       */
 /************************************************************************/
 
 #if !defined(ARM_V7)
@@ -1114,7 +1115,7 @@ static int
 }
 
 /************************************************************************/
-/*                        AverageFloatSSE2()                            */
+/*                          AverageFloatSSE2()                          */
 /************************************************************************/
 
 static int AverageFloatSSE2(int nDstXWidth, int nChunkXSize,
@@ -1159,7 +1160,7 @@ static int AverageFloatSSE2(int nDstXWidth, int nChunkXSize,
 }
 
 /************************************************************************/
-/*                        AverageDoubleSSE2()                           */
+/*                         AverageDoubleSSE2()                          */
 /************************************************************************/
 
 static int
@@ -1210,7 +1211,7 @@ AverageDoubleSSE2(int nDstXWidth, int nChunkXSize,
 #endif
 
 /************************************************************************/
-/*                    GDALResampleChunk_AverageOrRMS()                  */
+/*                   GDALResampleChunk_AverageOrRMS()                   */
 /************************************************************************/
 
 template <class T, class Tsum, GDALDataType eWrkDataType, bool bQuadraticMean>
@@ -2008,7 +2009,7 @@ GDALResampleChunk_AverageOrRMS(const GDALOverviewResampleArgs &args,
 }
 
 /************************************************************************/
-/*                     GDALResampleChunk_Gauss()                        */
+/*                      GDALResampleChunk_Gauss()                       */
 /************************************************************************/
 
 static CPLErr GDALResampleChunk_Gauss(const GDALOverviewResampleArgs &args,
@@ -2298,7 +2299,7 @@ static CPLErr GDALResampleChunk_Gauss(const GDALOverviewResampleArgs &args,
 }
 
 /************************************************************************/
-/*                      GDALResampleChunk_Mode()                        */
+/*                       GDALResampleChunk_Mode()                       */
 /************************************************************************/
 
 template <class T> static inline bool IsSame(T a, T b)
@@ -2740,7 +2741,7 @@ static CPLErr GDALResampleChunk_Mode(const GDALOverviewResampleArgs &args,
 }
 
 /************************************************************************/
-/*                  GDALResampleConvolutionHorizontal()                 */
+/*                 GDALResampleConvolutionHorizontal()                  */
 /************************************************************************/
 
 template <class T>
@@ -2920,7 +2921,7 @@ static inline void GDALResampleConvolutionVertical_2cols(
 
 #ifdef __AVX__
 /************************************************************************/
-/*             GDALResampleConvolutionVertical_16cols<T>                */
+/*              GDALResampleConvolutionVertical_16cols<T>               */
 /************************************************************************/
 
 template <class T>
@@ -2988,7 +2989,7 @@ static inline void GDALResampleConvolutionVertical_16cols(const T *, int,
 #else
 
 /************************************************************************/
-/*              GDALResampleConvolutionVertical_8cols<T>                */
+/*               GDALResampleConvolutionVertical_8cols<T>               */
 /************************************************************************/
 
 template <class T>
@@ -3042,7 +3043,7 @@ static inline void GDALResampleConvolutionVertical_8cols(const T *, int,
 #endif  // __AVX__
 
 /************************************************************************/
-/*              GDALResampleConvolutionHorizontalSSE2<T>                */
+/*               GDALResampleConvolutionHorizontalSSE2<T>               */
 /************************************************************************/
 
 template <class T>
@@ -3077,7 +3078,7 @@ static inline double GDALResampleConvolutionHorizontalSSE2(
 }
 
 /************************************************************************/
-/*              GDALResampleConvolutionHorizontal<GByte>                */
+/*               GDALResampleConvolutionHorizontal<GByte>               */
 /************************************************************************/
 
 template <>
@@ -3097,7 +3098,7 @@ inline double GDALResampleConvolutionHorizontal<GUInt16>(
 }
 
 /************************************************************************/
-/*              GDALResampleConvolutionHorizontalWithMaskSSE2<T>        */
+/*           GDALResampleConvolutionHorizontalWithMaskSSE2<T>           */
 /************************************************************************/
 
 template <class T>
@@ -3130,7 +3131,7 @@ static inline void GDALResampleConvolutionHorizontalWithMaskSSE2(
 }
 
 /************************************************************************/
-/*              GDALResampleConvolutionHorizontalWithMask<GByte>        */
+/*           GDALResampleConvolutionHorizontalWithMask<GByte>           */
 /************************************************************************/
 
 template <>
@@ -3156,7 +3157,7 @@ inline void GDALResampleConvolutionHorizontalWithMask<GUInt16>(
 }
 
 /************************************************************************/
-/*              GDALResampleConvolutionHorizontal_3rows_SSE2<T>         */
+/*           GDALResampleConvolutionHorizontal_3rows_SSE2<T>            */
 /************************************************************************/
 
 template <class T>
@@ -3205,7 +3206,7 @@ static inline void GDALResampleConvolutionHorizontal_3rows_SSE2(
 }
 
 /************************************************************************/
-/*              GDALResampleConvolutionHorizontal_3rows<GByte>          */
+/*            GDALResampleConvolutionHorizontal_3rows<GByte>            */
 /************************************************************************/
 
 template <>
@@ -3231,7 +3232,7 @@ inline void GDALResampleConvolutionHorizontal_3rows<GUInt16>(
 }
 
 /************************************************************************/
-/*     GDALResampleConvolutionHorizontalPixelCountLess8_3rows_SSE2<T>   */
+/*    GDALResampleConvolutionHorizontalPixelCountLess8_3rows_SSE2<T>    */
 /************************************************************************/
 
 template <class T>
@@ -3271,7 +3272,7 @@ static inline void GDALResampleConvolutionHorizontalPixelCountLess8_3rows_SSE2(
 }
 
 /************************************************************************/
-/*     GDALResampleConvolutionHorizontalPixelCountLess8_3rows<GByte>    */
+/*    GDALResampleConvolutionHorizontalPixelCountLess8_3rows<GByte>     */
 /************************************************************************/
 
 template <>
@@ -3297,7 +3298,7 @@ inline void GDALResampleConvolutionHorizontalPixelCountLess8_3rows<GUInt16>(
 }
 
 /************************************************************************/
-/*     GDALResampleConvolutionHorizontalPixelCount4_3rows_SSE2<T>       */
+/*      GDALResampleConvolutionHorizontalPixelCount4_3rows_SSE2<T>      */
 /************************************************************************/
 
 template <class T>
@@ -3324,7 +3325,7 @@ static inline void GDALResampleConvolutionHorizontalPixelCount4_3rows_SSE2(
 }
 
 /************************************************************************/
-/*       GDALResampleConvolutionHorizontalPixelCount4_3rows<GByte>      */
+/*      GDALResampleConvolutionHorizontalPixelCount4_3rows<GByte>       */
 /************************************************************************/
 
 template <>
@@ -3352,7 +3353,7 @@ inline void GDALResampleConvolutionHorizontalPixelCount4_3rows<GUInt16>(
 #endif  // USE_SSE2
 
 /************************************************************************/
-/*                    GDALResampleChunk_Convolution()                   */
+/*                   GDALResampleChunk_Convolution()                    */
 /************************************************************************/
 
 template <class T, class Twork, GDALDataType eWrkDataType,
@@ -3905,9 +3906,8 @@ static CPLErr GDALResampleChunk_ConvolutionT(
             size_t j =
                 (nSrcLineStart - nChunkYOff) * static_cast<size_t>(nDstXSize);
 #ifdef USE_SSE2
-            if constexpr ((!bNeedRescale ||
-                           !std::is_same_v<T, float>)&&eWrkDataType ==
-                          GDT_Float32)
+            if constexpr ((!bNeedRescale || !std::is_same_v<T, float>) &&
+                          eWrkDataType == GDT_Float32)
             {
 #ifdef __AVX__
                 for (; iFilteredPixelOff < nDstXSize - 15;
@@ -4559,6 +4559,8 @@ static CPLErr GDALRegenerateCascadingOverviews(
     /* -------------------------------------------------------------------- */
     double dfPixelsProcessed = 0.0;
 
+    CPLStringList aosOptions(papszOptions);
+    aosOptions.SetNameValue("CASCADING", "YES");
     for (int i = 0; i < nOverviews; ++i)
     {
         GDALRasterBand *poBaseBand = poSrcBand;
@@ -4577,7 +4579,7 @@ static CPLErr GDALRegenerateCascadingOverviews(
             poBaseBand, 1,
             reinterpret_cast<GDALRasterBandH *>(papoOvrBands) + i,
             pszResampling, GDALScaledProgress, pScaledProgressData,
-            papszOptions);
+            aosOptions.List());
         GDALDestroyScaledProgress(pScaledProgressData);
 
         if (eErr != CE_None)
@@ -4595,7 +4597,7 @@ static CPLErr GDALRegenerateCascadingOverviews(
 }
 
 /************************************************************************/
-/*                    GDALGetResampleFunction()                         */
+/*                      GDALGetResampleFunction()                       */
 /************************************************************************/
 
 GDALResampleFunction GDALGetResampleFunction(const char *pszResampling,
@@ -4651,7 +4653,7 @@ GDALResampleFunction GDALGetResampleFunction(const char *pszResampling,
 }
 
 /************************************************************************/
-/*                      GDALGetOvrWorkDataType()                        */
+/*                       GDALGetOvrWorkDataType()                       */
 /************************************************************************/
 
 GDALDataType GDALGetOvrWorkDataType(const char *pszResampling,
@@ -4698,7 +4700,14 @@ struct PointerHolder
 {
     void *ptr = nullptr;
 
-    explicit PointerHolder(void *ptrIn) : ptr(ptrIn)
+    template <class T> explicit PointerHolder(T *&ptrIn) : ptr(ptrIn)
+    {
+        ptrIn = nullptr;
+    }
+
+    template <class T>
+    explicit PointerHolder(std::unique_ptr<T, VSIFreeReleaser> ptrIn)
+        : ptr(ptrIn.release())
     {
     }
 
@@ -4896,6 +4905,26 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         }
     }
 
+    int nHasNoData = 0;
+    const double dfNoDataValue = poSrcBand->GetNoDataValue(&nHasNoData);
+    const bool bHasNoData = CPL_TO_BOOL(nHasNoData);
+    const bool bPropagateNoData =
+        CPLTestBool(CPLGetConfigOption("GDAL_OVR_PROPAGATE_NODATA", "NO"));
+
+    if (poSrcBand->GetBand() == 1 && bUseNoDataMask &&
+        CSLFetchNameValue(papszOptions, "CASCADING") == nullptr)
+    {
+        std::string osDetailMessage;
+        if (poSrcBand->HasConflictingMaskSources(&osDetailMessage, false))
+        {
+            CPLError(
+                CE_Warning, CPLE_AppDefined, "%s%s", osDetailMessage.c_str(),
+                bHasNoData
+                    ? "Only the nodata value will be taken into account."
+                    : "Only the first listed one will be taken into account.");
+        }
+    }
+
     /* -------------------------------------------------------------------- */
     /*      If we are operating on multiple overviews, and using            */
     /*      averaging, lets do them in cascading order to reduce the        */
@@ -5027,12 +5056,6 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         }
     }
 
-    int nHasNoData = 0;
-    const double dfNoDataValue = poSrcBand->GetNoDataValue(&nHasNoData);
-    const bool bHasNoData = CPL_TO_BOOL(nHasNoData);
-    const bool bPropagateNoData =
-        CPLTestBool(CPLGetConfigOption("GDAL_OVR_PROPAGATE_NODATA", "NO"));
-
     // Structure describing a resampling job
     struct OvrJob
     {
@@ -5121,8 +5144,8 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
                 poJob->args.pszResampling);
         }
 
-        poJob->oDstBufferHolder =
-            std::make_unique<PointerHolder>(poJob->pDstBuffer);
+        auto pDstBuffer = poJob->pDstBuffer;
+        poJob->oDstBufferHolder = std::make_unique<PointerHolder>(pDstBuffer);
 
         poJob->NotifyFinished();
     };
@@ -5159,10 +5182,8 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
     GByte *pabyChunkNodataMask = nullptr;
     void *pChunk = nullptr;
 
-    const char *pszThreads = CPLGetConfigOption("GDAL_NUM_THREADS", "1");
-    const int nThreads = std::max(1, std::min(128, EQUAL(pszThreads, "ALL_CPUS")
-                                                       ? CPLGetNumCPUs()
-                                                       : atoi(pszThreads)));
+    const int nThreads = GDALGetNumThreads(GDAL_DEFAULT_MAX_THREAD_COUNT,
+                                           /* bDefaultToAllCPUs=*/false);
     auto poThreadPool =
         nThreads > 1 ? GDALGetGlobalThreadPool(nThreads) : nullptr;
     auto poJobQueue = poThreadPool ? poThreadPool->CreateJobQueue()
@@ -5358,10 +5379,16 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
             }
         }
 
-        auto oSrcBufferHolder =
-            std::make_shared<PointerHolder>(poJobQueue ? pChunk : nullptr);
-        auto oSrcMaskBufferHolder = std::make_shared<PointerHolder>(
-            poJobQueue ? pabyChunkNodataMask : nullptr);
+        auto pChunkRaw = pChunk;
+        auto pabyChunkNodataMaskRaw = pabyChunkNodataMask;
+        std::shared_ptr<PointerHolder> oSrcBufferHolder;
+        std::shared_ptr<PointerHolder> oSrcMaskBufferHolder;
+        if (poJobQueue)
+        {
+            oSrcBufferHolder = std::make_shared<PointerHolder>(pChunk);
+            oSrcMaskBufferHolder =
+                std::make_shared<PointerHolder>(pabyChunkNodataMask);
+        }
 
         for (int iOverview = 0; iOverview < nOverviewCount && eErr == CE_None;
              ++iOverview)
@@ -5413,8 +5440,8 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
             poJob->args.dfXRatioDstToSrc = dfXRatioDstToSrc;
             poJob->args.dfYRatioDstToSrc = dfYRatioDstToSrc;
             poJob->args.eWrkDataType = eWrkDataType;
-            poJob->pChunk = pChunk;
-            poJob->args.pabyChunkNodataMask = pabyChunkNodataMask;
+            poJob->pChunk = pChunkRaw;
+            poJob->args.pabyChunkNodataMask = pabyChunkNodataMaskRaw;
             poJob->nSrcWidth = nWidth;
             poJob->nSrcHeight = nHeight;
             poJob->args.nChunkXOff = 0;
@@ -5450,12 +5477,6 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
                     eErr = WriteJobData(poJob.get());
                 }
             }
-        }
-
-        if (poJobQueue)
-        {
-            pChunk = nullptr;
-            pabyChunkNodataMask = nullptr;
         }
     }
 
@@ -5497,7 +5518,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
 }
 
 /************************************************************************/
-/*            GDALRegenerateOverviewsMultiBand()                        */
+/*                  GDALRegenerateOverviewsMultiBand()                  */
 /************************************************************************/
 
 /**
@@ -5683,13 +5704,22 @@ CPLErr GDALRegenerateOverviewsMultiBand(
             papoSrcBands[iBand]->GetNoDataValue(&nHasNoData);
         abHasNoData[iBand] = CPL_TO_BOOL(nHasNoData);
     }
+
+    std::string osDetailMessage;
+    if (bUseNoDataMask &&
+        papoSrcBands[0]->HasConflictingMaskSources(&osDetailMessage, false))
+    {
+        CPLError(CE_Warning, CPLE_AppDefined, "%s%s", osDetailMessage.c_str(),
+                 abHasNoData[0]
+                     ? "Only the nodata value will be taken into account."
+                     : "Only the first listed one will be taken into account.");
+    }
+
     const bool bPropagateNoData =
         CPLTestBool(CPLGetConfigOption("GDAL_OVR_PROPAGATE_NODATA", "NO"));
 
-    const char *pszThreads = CPLGetConfigOption("GDAL_NUM_THREADS", "1");
-    const int nThreads = std::max(1, std::min(128, EQUAL(pszThreads, "ALL_CPUS")
-                                                       ? CPLGetNumCPUs()
-                                                       : atoi(pszThreads)));
+    const int nThreads = GDALGetNumThreads(GDAL_DEFAULT_MAX_THREAD_COUNT,
+                                           /* bDefaultToAllCPUs=*/false);
     auto poThreadPool =
         nThreads > 1 ? GDALGetGlobalThreadPool(nThreads) : nullptr;
     auto poJobQueue = poThreadPool ? poThreadPool->CreateJobQueue()
@@ -6038,7 +6068,7 @@ CPLErr GDALRegenerateOverviewsMultiBand(
                     apoDstBand[iBand]->FlushCache(false);
 
                 continue;  // Next overview
-            }              // chunking via temporary dataset
+            }  // chunking via temporary dataset
 
             std::unique_ptr<GDALDataset> poTmpDS;
             // Config option mostly/only for autotest purposes
@@ -6284,7 +6314,9 @@ CPLErr GDALRegenerateOverviewsMultiBand(
                                                &(poJob->pDstBuffer),
                                                &(poJob->eDstBufferDataType));
 
-            poJob->oDstBufferHolder.reset(new PointerHolder(poJob->pDstBuffer));
+            auto pDstBuffer = poJob->pDstBuffer;
+            poJob->oDstBufferHolder =
+                std::make_unique<PointerHolder>(pDstBuffer);
 
             poJob->NotifyFinished();
         };
@@ -6519,11 +6551,13 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 
                     if (poJobQueue)
                     {
-                        poJob->oSrcMaskBufferHolder.reset(new PointerHolder(
-                            apabyChunkNoDataMask[iBand].release()));
+                        poJob->oSrcMaskBufferHolder =
+                            std::make_unique<PointerHolder>(
+                                std::move(apabyChunkNoDataMask[iBand]));
 
-                        poJob->oSrcBufferHolder.reset(
-                            new PointerHolder(apaChunk[iBand].release()));
+                        poJob->oSrcBufferHolder =
+                            std::make_unique<PointerHolder>(
+                                std::move(apaChunk[iBand]));
 
                         poJobQueue->SubmitJob(JobResampleFunc, poJob.get());
                         jobList.emplace_back(std::move(poJob));
@@ -6565,7 +6599,7 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 }
 
 /************************************************************************/
-/*            GDALRegenerateOverviewsMultiBand()                        */
+/*                  GDALRegenerateOverviewsMultiBand()                  */
 /************************************************************************/
 
 /**

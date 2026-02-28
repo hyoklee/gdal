@@ -587,14 +587,14 @@ class DatasetWithErrorInFlushCache final : public GDALDataset
         return CE_None;
     }
 
-    static GDALDataset *CreateCopy(const char *, GDALDataset *, int, char **,
-                                   GDALProgressFunc, void *)
+    static GDALDataset *CreateCopy(const char *, GDALDataset *, int,
+                                   CSLConstList, GDALProgressFunc, void *)
     {
         return new DatasetWithErrorInFlushCache();
     }
 
     static GDALDataset *Create(const char *, int nXSize, int nYSize, int,
-                               GDALDataType, char **)
+                               GDALDataType, CSLConstList)
     {
         DatasetWithErrorInFlushCache *poDS = new DatasetWithErrorInFlushCache();
         poDS->eAccess = GA_Update;
@@ -5238,8 +5238,10 @@ TEST_F(test_gdal, GDALComputeRasterMinMaxLocation_with_mask)
     GDALDatasetUniquePtr poDS(
         MEMDataset::Create("", 2, 2, 1, GDT_Byte, nullptr));
     std::array<uint8_t, 6> buffer = {
-        2, 10,  //////////////////////////////////////////////////////////
-        4, 20,  //////////////////////////////////////////////////////////
+        2,
+        10,  //////////////////////////////////////////////////////////
+        4,
+        20,  //////////////////////////////////////////////////////////
     };
     GDALRasterIOExtraArg sExtraArg;
     INIT_RASTERIO_EXTRA_ARG(sExtraArg);
@@ -5250,8 +5252,10 @@ TEST_F(test_gdal, GDALComputeRasterMinMaxLocation_with_mask)
 
     poDS->GetRasterBand(1)->CreateMaskBand(0);
     std::array<uint8_t, 6> buffer_mask = {
-        0, 255,  //////////////////////////////////////////////////////////
-        255, 0,  //////////////////////////////////////////////////////////
+        0,
+        255,  //////////////////////////////////////////////////////////
+        255,
+        0,  //////////////////////////////////////////////////////////
     };
     EXPECT_EQ(poDS->GetRasterBand(1)->GetMaskBand()->RasterIO(
                   GF_Write, 0, 0, 2, 2, buffer_mask.data(), 2, 2, GDT_Byte,
@@ -6474,6 +6478,74 @@ TEST_F(test_gdal, GDALGeoTransform)
         env.MaxY *= 1e10;
         GDALRasterWindow window;
         EXPECT_FALSE(gt.Apply(env, window));
+    }
+}
+
+TEST_F(test_gdal, GDALRasterBand_HasConflictingMaskSources)
+{
+    auto poMemDrv = GetGDALDriverManager()->GetDriverByName("MEM");
+    if (!poMemDrv)
+    {
+        GTEST_SKIP() << "MEM driver missing";
+    }
+    else
+    {
+        {
+            auto poDS = std::unique_ptr<GDALDataset>(
+                poMemDrv->Create("", 1, 1, 1, GDT_Byte, nullptr));
+            poDS->GetRasterBand(1)->SetNoDataValue(1);
+
+            EXPECT_FALSE(poDS->GetRasterBand(1)->HasConflictingMaskSources());
+        }
+
+        {
+            auto poDS = std::unique_ptr<GDALDataset>(
+                poMemDrv->Create("", 1, 1, 1, GDT_Byte, nullptr));
+            poDS->CreateMaskBand(GMF_PER_DATASET);
+
+            EXPECT_FALSE(poDS->GetRasterBand(1)->HasConflictingMaskSources());
+        }
+
+        {
+            auto poDS = std::unique_ptr<GDALDataset>(
+                poMemDrv->Create("", 1, 1, 2, GDT_Byte, nullptr));
+            poDS->GetRasterBand(2)->SetColorInterpretation(GCI_AlphaBand);
+
+            EXPECT_FALSE(poDS->GetRasterBand(1)->HasConflictingMaskSources());
+        }
+
+        {
+            auto poDS = std::unique_ptr<GDALDataset>(
+                poMemDrv->Create("", 1, 1, 1, GDT_Byte, nullptr));
+            poDS->SetMetadataItem("NODATA_VALUES", "0");
+
+            EXPECT_FALSE(poDS->GetRasterBand(1)->HasConflictingMaskSources());
+        }
+
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = i + 1; j < 4; ++j)
+            {
+                auto poDS = std::unique_ptr<GDALDataset>(
+                    poMemDrv->Create("", 1, 1, 2, GDT_Byte, nullptr));
+                if (i == 0)
+                    poDS->GetRasterBand(1)->SetNoDataValue(1);
+                if (i == 1 || j == 1)
+                    poDS->GetRasterBand(1)->CreateMaskBand(0);
+                if (i == 2 || j == 2)
+                    poDS->GetRasterBand(2)->SetColorInterpretation(
+                        GCI_AlphaBand);
+                if (i == 3 || j == 3)
+                    poDS->SetMetadataItem("NODATA_VALUES", "0");
+
+                EXPECT_TRUE(
+                    poDS->GetRasterBand(1)->HasConflictingMaskSources());
+                std::string osMsg;
+                EXPECT_TRUE(
+                    poDS->GetRasterBand(1)->HasConflictingMaskSources(&osMsg));
+                EXPECT_TRUE(!osMsg.empty());
+            }
+        }
     }
 }
 

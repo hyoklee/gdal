@@ -7,15 +7,35 @@ Migration guide
 From GDAL 3.12 to GDAL 3.13
 ---------------------------
 
+- C API changes:
+
+  * the following functions now return a ``OGRErr`` whereas they returned void
+    before: :cpp:func:`OGR_G_SetPointCount`, :cpp:func:`OGR_G_SetPoint`,
+    :cpp:func:`OGR_G_SetPoint_2D`, :cpp:func:`OGR_G_SetPointM`,
+    :cpp:func:`OGR_G_SetPointZM`, :cpp:func:`OGR_G_AddPoint`,
+    :cpp:func:`OGR_G_AddPoint_2D`, :cpp:func:`OGR_G_AddPointM`,
+    :cpp:func:`OGR_G_AddPointZM`, :cpp:func:`OGR_G_SetPoints` and
+    :cpp:func:`OGR_G_SetPointsZM`.
+
 - Changes impacting out-of-tree vector drivers:
 
   * :cpp:func:`GDALDataset::Close` takes now 2 input parameters ``(GDALProgressFunc pfnProgress, void *pProgressData)``,
     which may be nullptr.
+  * :cpp:func:`GDALDataset::AddBand`, :cpp:func:`GDALDataset::AdviseRead`,
+    :cpp:func:`GDALDataset::BeginAsyncReader`, :cpp:func:`GDALDataset::CopyLayer`,
+    ``GDALDriver::pfnCreate``, ``GDALDriver::pfnCreateCopy``,
+    :cpp:func:`GDALRasterBand::AdviseRead` and :cpp:func:`GDALRasterBand::GetVirtualMemAuto`
+    now take a ``CSLConstList papszOptions`` parameter instead of ``char **``.
 
 - Changes impacting C++ users:
 
-  * :cpp:func:`GDALMajorObject::SetMetadata` now takes a ``CSLConstList`` argument.
-  * :cpp:func:`GDALMajorObject::GetMetadata` now returns a ``CSLConstList`` argument.
+  * :cpp:func:`GDALMajorObject::SetMetadata` now takes a ``CSLConstList`` argument
+    (this does not require code changes but is an opportunity for users to have better const safety)
+  * :cpp:func:`GDALMajorObject::GetMetadata` and :cpp:func:`GDALGetMetadata`
+    now return a ``CSLConstList`` argument.
+    This will require users that stored the return value of those functions in
+    ``char **`` to use ``CSLConstList`` instead. Such change is compatible with
+    earlier GDAL versions.
 
 From GDAL 3.11 to GDAL 3.12
 ---------------------------

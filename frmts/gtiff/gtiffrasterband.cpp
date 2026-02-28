@@ -22,7 +22,7 @@
 #include "tifvsi.h"
 
 /************************************************************************/
-/*                           GTiffRasterBand()                          */
+/*                          GTiffRasterBand()                           */
 /************************************************************************/
 
 GTiffRasterBand::GTiffRasterBand(GTiffDataset *poDSIn, int nBandIn)
@@ -218,7 +218,18 @@ GTiffRasterBand::~GTiffRasterBand()
 }
 
 /************************************************************************/
-/*                            IRasterIO()                               */
+/*                MayMultiBlockReadingBeMultiThreaded()                 */
+/************************************************************************/
+
+bool GTiffRasterBand::MayMultiBlockReadingBeMultiThreaded() const
+{
+    return m_poGDS->m_nDisableMultiThreadedRead == 0 &&
+           m_poGDS->m_poThreadPool != nullptr &&
+           m_poGDS->IsMultiThreadedReadCompatible();
+}
+
+/************************************************************************/
+/*                             IRasterIO()                              */
 /************************************************************************/
 
 CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
@@ -487,7 +498,7 @@ CPLErr GTiffRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 }
 
 /************************************************************************/
-/*                        ComputeBlockId()                              */
+/*                           ComputeBlockId()                           */
 /************************************************************************/
 
 /** Computes the TIFF block identifier from the tile coordinate, band

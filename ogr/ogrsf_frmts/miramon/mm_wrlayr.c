@@ -4844,7 +4844,7 @@ int MMResizeMiraMonFieldValue(struct MiraMonFieldValue **pFieldValue,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pFieldValue)))
     {
         return 1;
@@ -4879,7 +4879,7 @@ int MMResizeMiraMonPolygonArcs(struct MM_PAL_MEM **pFID,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pFID)))
     {
         return 1;
@@ -4914,7 +4914,7 @@ int MMResizeMiraMonRecord(struct MiraMonRecord **pMiraMonRecord,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pMiraMonRecord)))
     {
         return 1;
@@ -4949,7 +4949,7 @@ int MMResizeZSectionDescrPointer(struct MM_ZD **pZDescription, GUInt64 *nMax,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pZDescription)))
     {
         return 1;
@@ -4983,7 +4983,7 @@ int MMResizeNodeHeaderPointer(struct MM_NH **pNodeHeader, GUInt64 *nMax,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pNodeHeader)))
     {
         return 1;
@@ -5016,7 +5016,7 @@ int MMResizeArcHeaderPointer(struct MM_AH **pArcHeader, GUInt64 *nMax,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pArcHeader)))
     {
         return 1;
@@ -5049,7 +5049,7 @@ int MMResizePolHeaderPointer(struct MM_PH **pPolHeader, GUInt64 *nMax,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pPolHeader)))
     {
         return 1;
@@ -5085,7 +5085,7 @@ int MMResize_MM_N_VERTICES_TYPE_Pointer(MM_N_VERTICES_TYPE **pVrt,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pVrt)))
     {
         return 1;
@@ -5116,7 +5116,7 @@ int MMResizeVFGPointer(char **pInt, MM_INTERNAL_FID *nMax, MM_INTERNAL_FID nNum,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pInt)))
     {
         return 1;
@@ -5149,7 +5149,7 @@ int MMResizeMM_POINT2DPointer(struct MM_POINT_2D **pPoint2D,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pPoint2D)))
     {
         return 1;
@@ -5183,7 +5183,7 @@ int MMResizeDoublePointer(MM_COORD_TYPE **pDouble, MM_N_VERTICES_TYPE *nMax,
         return 0;
 
     nPrevMax = *nMax;
-    nNewMax = MAX(nNum + nIncr, nProposedMax);
+    nNewMax = CPL_MAX(nNum + nIncr, nProposedMax);
     if (MMCheckSize_t(nNewMax, sizeof(**pDouble)))
     {
         return 1;
@@ -5237,33 +5237,6 @@ int MMResizeStringToOperateIfNeeded(struct MiraMonVectLayerInfo *hMiraMonLayer,
 /* -------------------------------------------------------------------- */
 
 #define LineReturn "\r\n"
-
-// Generates an identifier that REL 4 MiraMon metadata needs.
-static void MMGenerateFileIdentifierFromMetadataFileName(char *pMMFN,
-                                                         char *aFileIdentifier)
-{
-    char aCharRand[8];
-    static const char aCharset[] =
-        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    int i, len_charset;
-
-    memset(aFileIdentifier, '\0', MM_MAX_LEN_LAYER_IDENTIFIER);
-
-    aCharRand[0] = '_';
-    len_charset = (int)strlen(aCharset);
-    for (i = 1; i < 7; i++)
-    {
-#ifndef __COVERITY__
-        aCharRand[i] = aCharset[rand() % (len_charset - 1)];
-#else
-        aCharRand[i] = aCharset[i % (len_charset - 1)];
-#endif
-    }
-    aCharRand[7] = '\0';
-    CPLStrlcpy(aFileIdentifier, pMMFN, MM_MAX_LEN_LAYER_IDENTIFIER - 7);
-    strcat(aFileIdentifier, aCharRand);
-    return;
-}
 
 // Converts a string from UTF-8 to ANSI to be written in a REL 4 file
 static void MMWrite_ANSI_MetadataKeyDescriptor(
@@ -6162,7 +6135,7 @@ MMTestAndFixValueToRecordDBXP(struct MiraMonVectLayerInfo *hMiraMonLayer,
 
     if (nNewWidth > camp->BytesPerField)
     {
-        if (MM_WriteNRecordsMMBD_XPFile(pMMAdmDB))
+        if (MM_WriteNRecordsMMBD_XPFile(pMMAdmDB->pMMBDXP))
             return 1;
 
         // Flushing all to be flushed
@@ -6991,7 +6964,7 @@ static int MMCloseMMBD_XPFile(struct MiraMonVectLayerInfo *hMiraMonLayer,
             }
         }
 
-        if (MM_WriteNRecordsMMBD_XPFile(MMAdmDB))
+        if (MM_WriteNRecordsMMBD_XPFile(MMAdmDB->pMMBDXP))
             goto end_label;
 
         // Flushing all to be flushed

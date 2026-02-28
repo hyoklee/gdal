@@ -29,7 +29,8 @@ Synopsis
 
 .. program-output:: gdal pipeline --help-doc=main
 
-A pipeline chains several steps, separated with the `!` (exclamation mark) character.
+A pipeline chains several steps, separated with the ``!`` (exclamation mark) character.
+Including a ``!`` between ``gdal pipeline`` and the first step is optional.
 The first step must be ``read``, ``calc``, ``concat``, ``mosaic`` or ``stack``,
 and the last one ``info``, ``tile`` or ``write``.
 Each step has its own positional or non-positional arguments.
@@ -59,6 +60,12 @@ Details for options can be found in :ref:`gdal_raster_contour`.
 .. program-output:: gdal pipeline --help-doc=footprint
 
 Details for options can be found in :ref:`gdal_raster_footprint`.
+
+* pixel-info
+
+.. program-output:: gdal pipeline --help-doc=pixel-info
+
+Details for options can be found in :ref:`gdal_raster_pixel_info`.
 
 * polygonize
 
@@ -187,6 +194,44 @@ Execution of pipelines and argument substitutions can also be done in Python wit
 
     gdal.Run("pipeline", pipeline="raster_reproject.gdalg.json", output="out.tif", arguments={"edit[0].metadata": "before=modified"})
 
+Placeholder dataset name ``_``
+------------------------------
+
+.. versionadded:: 3.13
+
+By default, in a pipeline step that accepts multiple input dataset arguments,
+the first positional argument, ``input``, is implicitly set to the output
+dataset from the previous step. In some cases, it might be desirable to pipe
+the output dataset from the previous step into one of the other input dataset
+arguments instead.
+
+This can be achieved by using the placeholder dataset name ``_`` (underscore) as
+the value for the alternate dataset argument, while explicitly specifying the
+input positional dataset argument.
+
+.. example::
+   :title: Summarize mean elevation within 200m of points of interest
+
+   .. code-block:: bash
+
+      gdal pipeline read points.geojson ! buffer 200 ! \
+          zonal-stats \
+            --input dem.tif
+            --zones _ \
+            --stat mean ! \
+          write \
+            --output-format CSV \
+            --output /vsistdout/
+
+
+It is also possible to achieve the same result by using a input nested pipeline
+as described below.
+
+.. warning::
+
+    Be careful to use the underscore character ``_``, and not the dash character ``-``.
+    The later tries to read the dataset from the standard input stream.
+
 
 .. _gdal_nested_pipeline:
 
@@ -210,12 +255,28 @@ an output-generating step like ``info``, ``tile`` or ``write``
 
         $ gdal pipeline read n43.tif ! \
                         color-map --color-map color_file.txt ! \
-                        color-merge --grayscale \
+                        blend --operator=hsv-value --overlay \
                             [ read n43.tif ! hillshade -z 30 ] ! \
                         write out.tif --overwrite
 
-In the above example, the value of the ``grayscale`` argument of the ``color-merge``
+In the above example, the value of the ``overlay`` argument of the ``blend``
 step is set as the output of the nested pipeline ``read n43.tif ! hillshade -z 30``.
+
+.. only:: html
+
+   .. image:: ../../images/programs/gdal_pipeline_input_nested.svg
+      :width: 0
+      :height: 0
+
+   .. raw:: html
+
+      <object type="image/svg+xml"
+              data="../_images/gdal_pipeline_input_nested.svg">
+      </object>
+
+.. only:: not html
+
+   .. image:: ../../images/programs/gdal_pipeline_input_nested.svg
 
 .. _gdal_output_nested_pipeline:
 
@@ -256,9 +317,26 @@ with one of them being an output nested pipeline inside an input nested pipeline
         $ gdal pipeline read n43.tif ! \
                         color-map --color-map color_file.txt ! \
                         tee [ write colored.tif --overwrite ] ! \
-                        color-merge --grayscale \
+                        blend --operator=hsv-value --overlay \
                             [ read n43.tif ! hillshade -z 30  ! tee [ write hillshade.tif --overwrite ] ] ! \
                         write colored-hillshade.tif --overwrite
+
+.. only:: html
+
+   .. image:: ../../images/programs/gdal_pipeline_output_nested.svg
+      :width: 0
+      :height: 0
+
+   .. raw:: html
+
+      <object type="image/svg+xml"
+              data="../_images/gdal_pipeline_output_nested.svg">
+      </object>
+
+.. only:: not html
+
+   .. image:: ../../images/programs/gdal_pipeline_output_nested.svg
+
 
 Examples
 --------

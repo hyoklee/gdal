@@ -39,7 +39,7 @@ constexpr const char *E57_PREFIX = "E57:";
 constexpr int E57_EOP_SIZE = 4;
 
 /************************************************************************/
-/*                             E57ImageDesc()                           */
+/*                            E57ImageDesc()                            */
 /************************************************************************/
 
 struct E57ImageDesc
@@ -55,7 +55,7 @@ struct E57ImageDesc
 };
 
 /************************************************************************/
-/*           IsValidPhysicalOffsetForBeginningOfSection()               */
+/*             IsValidPhysicalOffsetForBeginningOfSection()             */
 /************************************************************************/
 
 static bool IsValidPhysicalOffsetForBeginningOfSection(uint64_t nOffset,
@@ -204,7 +204,7 @@ class GDAL_E57FileHandle final : public VSIVirtualHandle
 
     vsi_l_offset Tell() override;
 
-    size_t Read(void *pBuffer, size_t nSize, size_t nCount) override
+    size_t Read(void *pBuffer, size_t nToReadTotal) override
     {
         if (m_bEOF || m_nPos > m_nLength ||
             m_nBasePhysicalOffset >
@@ -215,8 +215,7 @@ class GDAL_E57FileHandle final : public VSIVirtualHandle
             m_bEOF = true;
             return 0;
         }
-        const size_t nToReadTotal = nSize * nCount;
-        if (nSize == 0 || nCount == 0)
+        if (nToReadTotal == 0)
             return 0;
 
         // Align our raw file pointer to the physical location of the current
@@ -242,7 +241,7 @@ class GDAL_E57FileHandle final : public VSIVirtualHandle
                 std::min(static_cast<uint64_t>(nToReadTotal - nReadTotal),
                          nEndOfPagePhysicalOffset - nCurPos - E57_EOP_SIZE));
             const size_t nReadChunk =
-                m_poRawFP->Read(pabyBuffer + nReadTotal, 1, nToReadChunk);
+                m_poRawFP->Read(pabyBuffer + nReadTotal, nToReadChunk);
             m_nPos += nReadChunk;
             nReadTotal += nReadChunk;
             if (m_nPos > m_nLength)
@@ -261,14 +260,15 @@ class GDAL_E57FileHandle final : public VSIVirtualHandle
             {
                 // Skip 4 bytes of CRC
                 GByte abyCRC32[E57_EOP_SIZE];
-                if (m_poRawFP->Read(abyCRC32, sizeof(abyCRC32), 1) != 1)
+                if (m_poRawFP->Read(abyCRC32, sizeof(abyCRC32)) !=
+                    sizeof(abyCRC32))
                 {
                     CPLDebug("E57", "Cannot read CRC");
                     break;
                 }
             }
         }
-        return nReadTotal / nSize;
+        return nReadTotal;
     }
 
     int Eof() override
@@ -295,7 +295,7 @@ class GDAL_E57FileHandle final : public VSIVirtualHandle
         m_poRawFP->ClearErr();
     }
 
-    size_t Write(const void *, size_t, size_t) override
+    size_t Write(const void *, size_t) override
     {
         return 0;
     }
@@ -318,7 +318,7 @@ vsi_l_offset GDAL_E57FileHandle::Tell()
 }
 
 /************************************************************************/
-/*                           GDAL_E57RasterBand                         */
+/*                          GDAL_E57RasterBand                          */
 /************************************************************************/
 
 class GDAL_E57RasterBand final : public GDALProxyRasterBand
@@ -381,7 +381,7 @@ GDAL_E57Dataset::GDAL_E57Dataset(
 }
 
 /************************************************************************/
-/*                               Identify()                             */
+/*                              Identify()                              */
 /************************************************************************/
 
 /* static */
@@ -394,7 +394,7 @@ int GDAL_E57Dataset::Identify(GDALOpenInfo *poOpenInfo)
 }
 
 /************************************************************************/
-/*                         asMDDescriptors                              */
+/*                           asMDDescriptors                            */
 /************************************************************************/
 
 static const struct
@@ -425,7 +425,7 @@ static const struct
 };
 
 /************************************************************************/
-/*                                 Open()                               */
+/*                                Open()                                */
 /************************************************************************/
 
 /* static */
@@ -558,17 +558,18 @@ GDALDataset *GDAL_E57Dataset::Open(GDALOpenInfo *poOpenInfo)
         // Quick actions just to increase test coverage
         CPLAssert(poE57XmlFile->Tell() == 0);
         char chDummy = 0;
-        CPLAssert(poE57XmlFile->Read(&chDummy, 0, 0) == 0);
+        CPLAssert(poE57XmlFile->Read(&chDummy, 0) == 0);
         CPL_IGNORE_RET_VAL(chDummy);
         CPLAssert(!poE57XmlFile->Eof());
         CPLAssert(!poE57XmlFile->Error());
         poE57XmlFile->ClearErr();
-        CPLAssert(poE57XmlFile->Write("", 0, 0) == 0);
+        CPLAssert(poE57XmlFile->Write("", 0) == 0);
     }
 #endif
 
-    if (poE57XmlFile->Read(osXML.data(), static_cast<size_t>(xmlLogicalLength),
-                           1) != 1)
+    if (poE57XmlFile->Read(osXML.data(),
+                           static_cast<size_t>(xmlLogicalLength)) !=
+        static_cast<size_t>(xmlLogicalLength))
     {
         CPLError(CE_Failure, CPLE_AppDefined, "E57: cannot read XML");
         return nullptr;
@@ -841,7 +842,7 @@ GDALDataset *GDAL_E57Dataset::Open(GDALOpenInfo *poOpenInfo)
 }  // namespace
 
 /************************************************************************/
-/*                         GDALRegister_E57()                           */
+/*                          GDALRegister_E57()                          */
 /************************************************************************/
 
 void GDALRegister_E57()

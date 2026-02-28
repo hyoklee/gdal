@@ -86,7 +86,8 @@ struct CPL_DLL VSIVirtualHandle
 #endif
 
     virtual vsi_l_offset Tell() = 0;
-    virtual size_t Read(void *pBuffer, size_t nSize, size_t nCount) = 0;
+    size_t Read(void *pBuffer, size_t nSize, size_t nCount);
+    virtual size_t Read(void *pBuffer, size_t nBytes) = 0;
     virtual int ReadMultiRange(int nRanges, void **ppData,
                                const vsi_l_offset *panOffsets,
                                const size_t *panSizes);
@@ -126,7 +127,8 @@ struct CPL_DLL VSIVirtualHandle
         return 0;
     }
 
-    virtual size_t Write(const void *pBuffer, size_t nSize, size_t nCount) = 0;
+    virtual size_t Write(const void *pBuffer, size_t nBytes) = 0;
+    size_t Write(const void *pBuffer, size_t nSize, size_t nCount);
 
     int Printf(CPL_FORMAT_STRING(const char *pszFormat), ...)
         CPL_PRINT_FUNC_FORMAT(2, 3);
@@ -209,7 +211,7 @@ typedef std::unique_ptr<VSIVirtualHandle, VSIVirtualHandleCloser>
     VSIVirtualHandleUniquePtr;
 
 /************************************************************************/
-/*                        VSIProxyFileHandle                            */
+/*                          VSIProxyFileHandle                          */
 /************************************************************************/
 
 #ifndef DOXYGEN_SKIP
@@ -234,9 +236,9 @@ class VSIProxyFileHandle /* non final */ : public VSIVirtualHandle
         return m_nativeHandle->Tell();
     }
 
-    size_t Read(void *pBuffer, size_t nSize, size_t nCount) override
+    size_t Read(void *pBuffer, size_t nBytes) override
     {
-        return m_nativeHandle->Read(pBuffer, nSize, nCount);
+        return m_nativeHandle->Read(pBuffer, nBytes);
     }
 
     int ReadMultiRange(int nRanges, void **ppData,
@@ -258,9 +260,9 @@ class VSIProxyFileHandle /* non final */ : public VSIVirtualHandle
         return m_nativeHandle->GetAdviseReadTotalBytesLimit();
     }
 
-    size_t Write(const void *pBuffer, size_t nSize, size_t nCount) override
+    size_t Write(const void *pBuffer, size_t nBytes) override
     {
-        return m_nativeHandle->Write(pBuffer, nSize, nCount);
+        return m_nativeHandle->Write(pBuffer, nBytes);
     }
 
     void ClearErr() override
@@ -696,10 +698,9 @@ class VSIArchiveFilesystemHandler /* non final */ : public VSIFilesystemHandler
     virtual const VSIArchiveContent *
     GetContentOfArchive(const char *archiveFilename,
                         VSIArchiveReader *poReader = nullptr);
-    virtual char *SplitFilename(const char *pszFilename,
-                                CPLString &osFileInArchive,
-                                bool bCheckMainFileExists,
-                                bool bSetError) const;
+    virtual std::unique_ptr<char, VSIFreeReleaser>
+    SplitFilename(const char *pszFilename, CPLString &osFileInArchive,
+                  bool bCheckMainFileExists, bool bSetError) const;
     virtual std::unique_ptr<VSIArchiveReader>
     OpenArchiveFile(const char *archiveFilename, const char *fileInArchiveName);
 
@@ -721,7 +722,7 @@ class VSIArchiveFilesystemHandler /* non final */ : public VSIFilesystemHandler
 };
 
 /************************************************************************/
-/*                              VSIDIR                                  */
+/*                                VSIDIR                                */
 /************************************************************************/
 
 struct CPL_DLL VSIDIR

@@ -1265,13 +1265,13 @@ def test_vsifile_vsizip_non_latin1_char(tmp_vsimem):
 
     gdal.ErrorReset()
     with gdal.VSIFile(
-        f"/vsizip/{tmp_vsimem}/test.zip/" + b"\xE5\xAE\x89.txt".decode("UTF-8"), "wb"
+        f"/vsizip/{tmp_vsimem}/test.zip/" + b"\xe5\xae\x89.txt".decode("UTF-8"), "wb"
     ) as f:
         f.close()
         assert gdal.GetLastErrorMsg() == ""
 
     assert gdal.ReadDir(f"/vsizip/{tmp_vsimem}/test.zip") == [
-        b"\xE5\xAE\x89.txt".decode("UTF-8")
+        b"\xe5\xae\x89.txt".decode("UTF-8")
     ]
 
     with gdal.VSIFile(f"{tmp_vsimem}/test.zip", "rb") as f:
@@ -1286,7 +1286,7 @@ def test_vsifile_vsimem_truncate_zeroize():
 
     filename = "/vsimem/test.bin"
     f = gdal.VSIFOpenL(filename, "wb+")
-    data = b"\xFF" * 10000
+    data = b"\xff" * 10000
     gdal.VSIFWriteL(data, 1, len(data), f)
     gdal.VSIFTruncateL(f, 0)
     gdal.VSIFSeekL(f, 10000, 0)
@@ -1886,3 +1886,34 @@ def test_vsifile_rename_on_top_of_existing_file(tmp_path, source, dest):
     assert gdal.Rename(tmp_path / source, tmp_path / dest) == 0
 
     assert gdal.VSIStatL(tmp_path / dest).size == 2
+
+
+###############################################################################
+def test_vsifile_buffering(tmp_path):
+
+    filename = tmp_path / "test.bin"
+
+    BUFFER_SIZE = 4096
+    with gdal.VSIFile(filename, "wb+") as f:
+        f.seek(BUFFER_SIZE - 2, os.SEEK_SET)
+        f.write(b"abc")
+        assert f.tell() == BUFFER_SIZE - 2 + 3
+        f.write(b"def" + (b"x" * BUFFER_SIZE) + b"ghi")
+        assert f.tell() == BUFFER_SIZE - 2 + 3 + 3 + BUFFER_SIZE + 3
+        f.seek(BUFFER_SIZE - 3, os.SEEK_SET)
+        assert f.read(2) == b"\x00a"
+        assert (
+            f.read(2 + 3 + BUFFER_SIZE + 3) == b"bcdef" + (b"x" * BUFFER_SIZE) + b"ghi"
+        )
+        assert f.tell() == BUFFER_SIZE - 2 + 3 + 3 + BUFFER_SIZE + 3
+        f.seek(-5, os.SEEK_CUR)
+        assert f.read() == b"xxghi"
+
+
+###############################################################################
+def test_vsifile_mkdir_recursive_huge_filename(tmp_vsimem):
+
+    filename = str(tmp_vsimem)
+    filename += "a/" * ((4096 - len(filename)) // len("a/"))
+    assert gdal.MkdirRecursive(filename, 0o755) == 0
+    assert gdal.MkdirRecursive(filename + "a/", 0o755) < 0

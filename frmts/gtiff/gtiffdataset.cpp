@@ -114,6 +114,7 @@ GTiffDataset::GTiffDataset()
         m_eVirtualMemIOUsage = VirtualMemIOEnum::YES;
 
     m_oSRS.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    m_oISIS3Metadata.Deinit();
 }
 
 /************************************************************************/
@@ -127,7 +128,7 @@ GTiffDataset::~GTiffDataset()
 }
 
 /************************************************************************/
-/*                              Close()                                 */
+/*                               Close()                                */
 /************************************************************************/
 
 CPLErr GTiffDataset::Close(GDALProgressFunc, void *)
@@ -150,7 +151,7 @@ CPLErr GTiffDataset::Close(GDALProgressFunc, void *)
 }
 
 /************************************************************************/
-/*                             Finalize()                               */
+/*                              Finalize()                              */
 /************************************************************************/
 
 // Return a tuple (CPLErr, bool) to indicate respectively if an I/O error has
@@ -374,7 +375,7 @@ std::tuple<CPLErr, bool> GTiffDataset::Finalize()
 }
 
 /************************************************************************/
-/*                        CloseDependentDatasets()                      */
+/*                       CloseDependentDatasets()                       */
 /************************************************************************/
 
 int GTiffDataset::CloseDependentDatasets()
@@ -394,7 +395,7 @@ int GTiffDataset::CloseDependentDatasets()
 }
 
 /************************************************************************/
-/*                        IsWholeBlock()                                */
+/*                            IsWholeBlock()                            */
 /************************************************************************/
 
 bool GTiffDataset::IsWholeBlock(int nXOff, int nYOff, int nXSize,
@@ -416,7 +417,7 @@ bool GTiffDataset::IsWholeBlock(int nXOff, int nYOff, int nXSize,
 }
 
 /************************************************************************/
-/*                            IRasterIO()                               */
+/*                             IRasterIO()                              */
 /************************************************************************/
 
 CPLErr GTiffDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
@@ -701,7 +702,7 @@ CPLErr GTiffDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 }
 
 /************************************************************************/
-/*                       GetGTIFFKeysFlavor()                           */
+/*                         GetGTIFFKeysFlavor()                         */
 /************************************************************************/
 
 GTIFFKeysFlavorEnum GetGTIFFKeysFlavor(CSLConstList papszOptions)
@@ -714,7 +715,7 @@ GTIFFKeysFlavorEnum GetGTIFFKeysFlavor(CSLConstList papszOptions)
 }
 
 /************************************************************************/
-/*                       GetGeoTIFFVersion()                            */
+/*                         GetGeoTIFFVersion()                          */
 /************************************************************************/
 
 GeoTIFFVersionEnum GetGeoTIFFVersion(CSLConstList papszOptions)
@@ -729,7 +730,7 @@ GeoTIFFVersionEnum GetGeoTIFFVersion(CSLConstList papszOptions)
 }
 
 /************************************************************************/
-/*                      InitCreationOrOpenOptions()                     */
+/*                     InitCreationOrOpenOptions()                      */
 /************************************************************************/
 
 void GTiffDataset::InitCreationOrOpenOptions(bool bUpdateMode,
@@ -846,7 +847,7 @@ bool GTiffDataset::IsBlockAvailable(int nBlockId, vsi_l_offset *pnOffset,
 }
 
 /************************************************************************/
-/*                           ReloadDirectory()                          */
+/*                          ReloadDirectory()                           */
 /************************************************************************/
 
 void GTiffDataset::ReloadDirectory(bool bReopenHandle)
@@ -903,7 +904,7 @@ bool GTiffDataset::SetDirectory()
 }
 
 /************************************************************************/
-/*                     GTiffSetDeflateSubCodec()                        */
+/*                      GTiffSetDeflateSubCodec()                       */
 /************************************************************************/
 
 void GTiffSetDeflateSubCodec(TIFF *hTIFF)
@@ -999,7 +1000,7 @@ void GTiffDataset::RestoreVolatileParameters(TIFF *hTIFF)
 }
 
 /************************************************************************/
-/*                     ComputeBlocksPerColRowAndBand()                  */
+/*                   ComputeBlocksPerColRowAndBand()                    */
 /************************************************************************/
 
 bool GTiffDataset::ComputeBlocksPerColRowAndBand(int l_nBands)
@@ -1028,7 +1029,7 @@ bool GTiffDataset::ComputeBlocksPerColRowAndBand(int l_nBands)
 }
 
 /************************************************************************/
-/*                   SetStructuralMDFromParent()                        */
+/*                     SetStructuralMDFromParent()                      */
 /************************************************************************/
 
 void GTiffDataset::SetStructuralMDFromParent(GTiffDataset *poParentDS)
@@ -1467,7 +1468,7 @@ char **GTiffDataset::GetFileList()
 }
 
 /************************************************************************/
-/*                        GetRawBinaryLayout()                          */
+/*                         GetRawBinaryLayout()                         */
 /************************************************************************/
 
 bool GTiffDataset::GetRawBinaryLayout(GDALDataset::RawBinaryLayout &sLayout)
@@ -1594,7 +1595,7 @@ bool GTiffDataset::GetRawBinaryLayout(GDALDataset::RawBinaryLayout &sLayout)
 }
 
 /************************************************************************/
-/*               GTiffDatasetLibGeotiffErrorCallback()                  */
+/*                GTiffDatasetLibGeotiffErrorCallback()                 */
 /************************************************************************/
 
 static void GTiffDatasetLibGeotiffErrorCallback(GTIF *, int level,
@@ -1608,7 +1609,7 @@ static void GTiffDatasetLibGeotiffErrorCallback(GTIF *, int level,
 }
 
 /************************************************************************/
-/*                           GTIFNew()                                  */
+/*                              GTIFNew()                               */
 /************************************************************************/
 
 /* static */ GTIF *GTiffDataset::GTIFNew(TIFF *hTIFF)

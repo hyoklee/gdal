@@ -46,11 +46,12 @@ class GDALVectorInfoAlgorithm /* non final */
     std::string m_sql{};
     std::string m_where{};
     std::string m_dialect{};
+    int m_fid = -1;
     int m_limit = 0;
 };
 
 /************************************************************************/
-/*                 GDALVectorInfoAlgorithmStandalone                    */
+/*                  GDALVectorInfoAlgorithmStandalone                   */
 /************************************************************************/
 
 class GDALVectorInfoAlgorithmStandalone final : public GDALVectorInfoAlgorithm

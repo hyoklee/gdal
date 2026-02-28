@@ -58,7 +58,8 @@ Program-Specific Options
 
    .. versionadded:: 3.12.1
 
-   Optional field(s) to copy from the input features to the output.
+   Optional field(s) to copy from the input features to the output. Since GDAL 3.13, the value ``ALL`` can be used to include all fields
+   from the source layer.
 
 .. option:: --include-valid
 
@@ -86,6 +87,8 @@ Standard Options
     .. include:: gdal_options/if.rst
 
     .. include:: gdal_options/lco.rst
+
+    .. include:: gdal_options/no_create_empty_layers.rst
 
     .. include:: gdal_options/oo.rst
 

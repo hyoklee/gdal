@@ -90,6 +90,10 @@ def test_mem_md_subgroup():
     assert subsubg is not None
     assert subsubg.GetFullName() == "/subgroup/subsubgroup"
 
+    root_from_fullname = rg.OpenGroupFromFullname("/")
+    assert root_from_fullname is not None
+    assert root_from_fullname.GetFullName() == "/"
+
     subg.CreateMDArray("myarray", [], gdal.ExtendedDataType.Create(gdal.GDT_UInt8))
     array = rg.OpenMDArrayFromFullname("/subgroup/myarray")
     assert array is not None
@@ -967,7 +971,7 @@ def test_mem_md_array_slice():
     ar = rg.CreateMDArray(
         "array_1", [dim_1], gdal.ExtendedDataType.Create(gdal.GDT_UInt8)
     )
-    data = b"\xFE"
+    data = b"\xfe"
     assert ar.Write(data) == gdal.CE_None
     assert ar[:].Read() == data
     assert ar[0:1].Read() == data
