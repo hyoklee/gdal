@@ -1669,7 +1669,8 @@ bool OGRFeature::IsFieldNull(int iField) const
     const int iSpecialField = iField - poDefn->GetFieldCountUnsafe();
     if (iSpecialField >= 0)
     {
-        // FIXME?
+        // Special fields (FID, geometry, style, area) are virtual/derived
+        // values that have no nullable state.
         return false;
     }
     else
@@ -2835,7 +2836,6 @@ const char *OGRFeature::GetFieldAsISO8601DateTime(
     OGRGetISO8601DateTime(&pauFields[iField], bAlwaysMillisecond,
                           m_pszTmpFieldValue);
     return m_pszTmpFieldValue;
-    ;
 }
 
 /************************************************************************/
@@ -2845,7 +2845,7 @@ const char *OGRFeature::GetFieldAsISO8601DateTime(
 /**
  * \brief Fetch OFTDateTime field value as a ISO8601 representation.
  *
- * Return a string like "YYYY-MM6DDTHH:MM:SS(.sss)?(Z|([+|-]HH:MM))?"
+ * Return a string like "YYYY-MM-DDTHH:MM:SS(.sss)?(Z|([+|-]HH:MM))?"
  * Milliseconds are omitted if equal to zero.
  * Other field types, or errors will result in a return of an empty string.
  *

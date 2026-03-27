@@ -38,6 +38,7 @@ target_sources(appslib PRIVATE
   gdalalg_dataset_copy.cpp
   gdalalg_dataset_rename.cpp
   gdalalg_dataset_delete.cpp
+  gdalalg_external.cpp
   gdalalg_materialize.cpp
   gdalalg_mdim.cpp
   gdalalg_mdim_info.cpp
@@ -103,9 +104,12 @@ target_sources(appslib PRIVATE
   gdalalg_vector_clean_coverage.cpp
   gdalalg_vector_combine.cpp
   gdalalg_vector_concat.cpp
+  gdalalg_vector_concave_hull.cpp
   gdalalg_vector_convert.cpp
+  gdalalg_vector_convex_hull.cpp
   gdalalg_vector_dissolve.cpp
   gdalalg_vector_edit.cpp
+  gdalalg_vector_export_schema.cpp
   gdalalg_vector_pipeline.cpp
   gdalalg_vector_rasterize.cpp
   gdalalg_vector_read.cpp
@@ -132,6 +136,7 @@ target_sources(appslib PRIVATE
   gdalalg_vector_layer_algebra.cpp
   gdalalg_vector_output_abstract.cpp
   gdalalg_vector_partition.cpp
+  gdalalg_vector_rename_layer.cpp
   gdalalg_vector_reproject.cpp
   gdalalg_vector_select.cpp
   gdalalg_vector_set_field_type.cpp
@@ -319,6 +324,10 @@ if (BUILD_APPS)
     endif ()
     target_link_libraries(${UTILCMD} PRIVATE $<TARGET_NAME:${GDAL_LIB_TARGET_NAME}> utils_common)
 
+    if(GDAL_INSTALL_RPATH)
+      set_target_properties(${UTILCMD} PROPERTIES INSTALL_RPATH "${GDAL_INSTALL_RPATH};${GDAL_INSTALL_RPATH_FOR_BINARY}")
+    endif()
+
     if (NOT GDAL_ENABLE_DRIVER_GTI OR GDAL_ENABLE_DRIVER_GTI_PLUGIN)
         target_compile_definitions(${UTILCMD} PRIVATE -DGTI_DRIVER_DISABLED_OR_PLUGIN)
     endif()
@@ -379,6 +388,11 @@ if (BUILD_APPS)
     target_include_directories(
       ${UTILCMD} PRIVATE $<TARGET_PROPERTY:gdal_vrt,SOURCE_DIR> $<TARGET_PROPERTY:ogrsf_generic,SOURCE_DIR>)
     target_link_libraries(${UTILCMD} PRIVATE $<TARGET_NAME:${GDAL_LIB_TARGET_NAME}>)
+
+    if(GDAL_INSTALL_RPATH)
+      set_target_properties(${UTILCMD} PROPERTIES INSTALL_RPATH "${GDAL_INSTALL_RPATH};${GDAL_INSTALL_RPATH_FOR_BINARY}")
+    endif()
+
   endforeach ()
 endif ()
 

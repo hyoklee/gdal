@@ -214,7 +214,7 @@ GDALDataset *GDALDriver::Create(const char *pszFilename, int nXSize, int nYSize,
     if (CPL_UNLIKELY(nBands < 0))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
-                 "Attempt to create dataset with %d bands is illegal,"
+                 "Attempt to create dataset with %d bands is illegal, "
                  "Must be >= 0.",
                  nBands);
         return nullptr;
@@ -225,7 +225,7 @@ GDALDataset *GDALDriver::Create(const char *pszFilename, int nXSize, int nYSize,
                      (nXSize < 1 || nYSize < 1)))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
-                 "Attempt to create %dx%d dataset is illegal,"
+                 "Attempt to create %dx%d dataset is illegal, "
                  "sizes must be larger than zero.",
                  nXSize, nYSize);
         return nullptr;
@@ -1011,6 +1011,8 @@ CPLErr GDALDriver::QuietDeleteForCreateCopy(const char *pszFilename,
     // This is somewhat messy. Ideally there should be a way for the
     // driver to overload the default behavior
     if (!EQUAL(GetDescription(), "MEM") && !EQUAL(GetDescription(), "Memory") &&
+        // VRT with empty name is a un-materialized dataset
+        !(EQUAL(GetDescription(), "VRT") && pszFilename[0] == 0) &&
         // Also exclude database formats for which there's no file list
         // and whose opening might be slow (GeoRaster in particular)
         !EQUAL(GetDescription(), "GeoRaster") &&
@@ -1805,9 +1807,11 @@ CPLErr GDALDriver::DefaultRename(const char *pszNewName, const char *pszOldName)
     /* -------------------------------------------------------------------- */
     /*      Collect file list.                                              */
     /* -------------------------------------------------------------------- */
-    GDALDatasetH hDS = GDALOpen(pszOldName, GA_ReadOnly);
+    auto poDS = std::unique_ptr<GDALDataset>(
+        GDALDataset::Open(pszOldName, GDAL_OF_ALL | GDAL_OF_VERBOSE_ERROR,
+                          nullptr, nullptr, nullptr));
 
-    if (hDS == nullptr)
+    if (!poDS)
     {
         if (CPLGetLastErrorNo() == 0)
             CPLError(CE_Failure, CPLE_OpenFailed,
@@ -1816,11 +1820,11 @@ CPLErr GDALDriver::DefaultRename(const char *pszNewName, const char *pszOldName)
         return CE_Failure;
     }
 
-    char **papszFileList = GDALGetFileList(hDS);
+    const CPLStringList aosFileList(poDS->GetFileList());
 
-    GDALClose(hDS);
+    poDS.reset();
 
-    if (CSLCount(papszFileList) == 0)
+    if (aosFileList.empty())
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Unable to determine files associated with %s,\n"
@@ -1835,30 +1839,43 @@ CPLErr GDALDriver::DefaultRename(const char *pszNewName, const char *pszOldName)
     /*      names.                                                          */
     /* -------------------------------------------------------------------- */
     CPLErr eErr = CE_None;
-    char **papszNewFileList =
-        CPLCorrespondingPaths(pszOldName, pszNewName, papszFileList);
+    const CPLStringList aosNewFileList(
+        CPLCorrespondingPaths(pszOldName, pszNewName, aosFileList.List()));
 
-    if (papszNewFileList == nullptr)
+    if (aosNewFileList.empty())
         return CE_Failure;
 
-    for (int i = 0; papszFileList[i] != nullptr; ++i)
+    // Guaranteed by CPLCorrespondingPaths()
+    CPLAssert(aosNewFileList.size() == aosFileList.size());
+
+    VSIStatBufL sStatBuf;
+    if (VSIStatL(pszOldName, &sStatBuf) == 0 && VSI_ISDIR(sStatBuf.st_mode) &&
+        VSIStatL(pszNewName, &sStatBuf) != 0)
     {
-        if (CPLMoveFile(papszNewFileList[i], papszFileList[i]) != 0)
+        if (VSIMkdirRecursive(pszNewName, 0755) != 0)
         {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Cannot create directory '%s'", pszNewName);
+            return CE_Failure;
+        }
+    }
+
+    for (int i = 0; i < aosFileList.size(); ++i)
+    {
+        if (CPLMoveFile(aosNewFileList[i], aosFileList[i]) != 0)
+        {
+            // Above method will have emitted an error in case of failure.
             eErr = CE_Failure;
             // Try to put the ones we moved back.
             for (--i; i >= 0; i--)
             {
                 // Nothing we can do if the moving back doesn't work...
                 CPL_IGNORE_RET_VAL(
-                    CPLMoveFile(papszFileList[i], papszNewFileList[i]));
+                    CPLMoveFile(aosFileList[i], aosNewFileList[i]));
             }
             break;
         }
     }
-
-    CSLDestroy(papszNewFileList);
-    CSLDestroy(papszFileList);
 
     return eErr;
 }
@@ -1939,9 +1956,11 @@ CPLErr GDALDriver::DefaultCopyFiles(const char *pszNewName,
     /* -------------------------------------------------------------------- */
     /*      Collect file list.                                              */
     /* -------------------------------------------------------------------- */
-    GDALDatasetH hDS = GDALOpen(pszOldName, GA_ReadOnly);
+    auto poDS = std::unique_ptr<GDALDataset>(
+        GDALDataset::Open(pszOldName, GDAL_OF_ALL | GDAL_OF_VERBOSE_ERROR,
+                          nullptr, nullptr, nullptr));
 
-    if (hDS == nullptr)
+    if (!poDS)
     {
         if (CPLGetLastErrorNo() == 0)
             CPLError(CE_Failure, CPLE_OpenFailed,
@@ -1950,16 +1969,15 @@ CPLErr GDALDriver::DefaultCopyFiles(const char *pszNewName,
         return CE_Failure;
     }
 
-    char **papszFileList = GDALGetFileList(hDS);
+    const CPLStringList aosFileList(poDS->GetFileList());
 
-    GDALClose(hDS);
-    hDS = nullptr;
+    poDS.reset();
 
-    if (CSLCount(papszFileList) == 0)
+    if (aosFileList.empty())
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "Unable to determine files associated with %s,\n"
-                 "rename fails.",
+                 "copy fails.",
                  pszOldName);
 
         return CE_Failure;
@@ -1970,26 +1988,45 @@ CPLErr GDALDriver::DefaultCopyFiles(const char *pszNewName,
     /*      names.                                                          */
     /* -------------------------------------------------------------------- */
     CPLErr eErr = CE_None;
-    char **papszNewFileList =
-        CPLCorrespondingPaths(pszOldName, pszNewName, papszFileList);
+    const CPLStringList aosNewFileList(
+        CPLCorrespondingPaths(pszOldName, pszNewName, aosFileList.List()));
 
-    if (papszNewFileList == nullptr)
+    if (aosNewFileList.empty())
         return CE_Failure;
 
-    for (int i = 0; papszFileList[i] != nullptr; ++i)
+    // Guaranteed by CPLCorrespondingPaths()
+    CPLAssert(aosNewFileList.size() == aosFileList.size());
+
+    VSIStatBufL sStatBuf;
+    if (VSIStatL(pszOldName, &sStatBuf) == 0 && VSI_ISDIR(sStatBuf.st_mode) &&
+        VSIStatL(pszNewName, &sStatBuf) != 0)
     {
-        if (CPLCopyFile(papszNewFileList[i], papszFileList[i]) != 0)
+        if (VSIMkdirRecursive(pszNewName, 0755) != 0)
         {
-            eErr = CE_Failure;
-            // Try to put the ones we moved back.
-            for (--i; i >= 0; --i)
-                VSIUnlink(papszNewFileList[i]);
-            break;
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Cannot create directory '%s'", pszNewName);
+            return CE_Failure;
         }
     }
 
-    CSLDestroy(papszNewFileList);
-    CSLDestroy(papszFileList);
+    for (int i = 0; i < aosFileList.size(); ++i)
+    {
+        if (CPLCopyFile(aosNewFileList[i], aosFileList[i]) != 0)
+        {
+            // Above method will have emitted an error in case of failure.
+            eErr = CE_Failure;
+            // Try to put the ones we moved back.
+            for (--i; i >= 0; --i)
+            {
+                if (VSIUnlink(aosNewFileList[i]) != 0)
+                {
+                    CPLError(CE_Warning, CPLE_AppDefined, "Cannot delete '%s'",
+                             aosNewFileList[i]);
+                }
+            }
+            break;
+        }
+    }
 
     return eErr;
 }

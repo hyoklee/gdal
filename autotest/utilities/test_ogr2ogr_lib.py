@@ -763,7 +763,7 @@ def test_ogr2ogr_emptyStrAsNull():
 # Verify propagation of field domains
 
 
-def test_ogr2ogr_fielddomain_():
+def test_ogr2ogr_fielddomain():
 
     src_ds = gdal.GetDriverByName("MEM").Create("", 0, 0, 0, gdal.GDT_Unknown)
     src_lyr = src_ds.CreateLayer("layer")
@@ -1002,7 +1002,7 @@ def test_ogr2ogr_upsert(tmp_vsimem, output_format):
         return srcDS
 
     if output_format == "SQLite":
-        with pytest.raises(Exception, match="SQLite driver doest not support upsert"):
+        with pytest.raises(Exception, match="SQLite driver does not support upsert"):
             gdal.VectorTranslate(filename, create_src_file(), accessMode="upsert")
     else:
         assert (
@@ -3420,3 +3420,144 @@ def test_ogr2ogr_lib_wrapdateline_useless():
         f,
         "POLYGON ((273569.876923437 913668.344183491,273568.830352505 913465.374678854,273786.170063323 913461.355034812,273785.056779618 913665.785238482,273569.876923437 913668.344183491))",
     )
+
+
+###############################################################################
+
+
+@pytest.mark.require_driver("GPKG")
+def test_ogr2ogr_lib_create_field_failure(tmp_vsimem):
+
+    # Fails because we don't recognize 1 as a geometry content
+    with pytest.raises(
+        Exception,
+        match="Cannot create field geom. It has the same name as the geometry field",
+    ):
+        gdal.VectorTranslate(
+            tmp_vsimem / "out.gpkg",
+            "../ogr/data/poly.shp",
+            options='-dialect SQLITE -nlt POINT -sql "SELECT 1 AS geom FROM poly"',
+        )
+
+    with gdaltest.error_raised(
+        gdal.CE_Failure,
+        match="Cannot create field geom. It has the same name as the geometry field",
+    ):
+        gdal.VectorTranslate(
+            tmp_vsimem / "out.gpkg",
+            "../ogr/data/poly.shp",
+            options='-dialect SQLITE -nlt POINT -sql "SELECT 1 AS geom FROM poly" -skip',
+        )
+
+    with gdal.GetDriverByName("GPKG").CreateVector(tmp_vsimem / "out.gpkg") as ds:
+        ds.CreateLayer("test", geom_type=ogr.wkbPoint)
+        ds.FlushCache()
+
+        with pytest.raises(
+            Exception,
+            match="Cannot create field geom. It has the same name as the geometry field",
+        ):
+            gdal.VectorTranslate(
+                ds,
+                "../ogr/data/poly.shp",
+                accessMode="append",
+                addFields=True,
+                SQLDialect="SQLITE",
+                SQLStatement="SELECT 1 AS geom FROM poly",
+                layerName="test",
+            )
+
+        with gdaltest.error_raised(
+            gdal.CE_Failure,
+            match="Cannot create field geom. It has the same name as the geometry field",
+        ):
+            gdal.VectorTranslate(
+                ds,
+                "../ogr/data/poly.shp",
+                accessMode="append",
+                addFields=True,
+                SQLDialect="SQLITE",
+                SQLStatement="SELECT 1 AS geom FROM poly",
+                layerName="test",
+                skipFailures=True,
+            )
+
+
+###############################################################################
+
+
+@pytest.mark.require_driver("GeoJSON")
+@pytest.mark.parametrize("quiet", [True, False])
+def test_ogr2ogr_lib_warn_no_curve_support(tmp_vsimem, quiet):
+
+    src_ds = gdal.GetDriverByName("MEM").CreateVector("")
+    src_lyr = src_ds.CreateLayer("test")
+    f = ogr.Feature(src_lyr.GetLayerDefn())
+    f.SetGeometry(ogr.CreateGeometryFromWkt("CIRCULARSTRING(0 0,1 1,2 0)"))
+    src_lyr.CreateFeature(f)
+    f = ogr.Feature(src_lyr.GetLayerDefn())
+    f.SetGeometry(ogr.CreateGeometryFromWkt("CIRCULARSTRING(0 0,1 1,2 0)"))
+    src_lyr.CreateFeature(f)
+
+    if quiet:
+        with gdaltest.error_raised(gdal.CE_None):
+            gdal.VectorTranslate(tmp_vsimem / "out.geojson", src_ds, quiet=True)
+    else:
+        with gdaltest.error_raised(
+            gdal.CE_Warning, match="Attempt to write curve geometries"
+        ):
+            gdal.VectorTranslate(tmp_vsimem / "out.geojson", src_ds)
+
+
+###############################################################################
+
+
+@pytest.mark.require_driver("MapML")
+@pytest.mark.parametrize("quiet", [True, False])
+def test_ogr2ogr_lib_warn_no_Z_support(tmp_vsimem, quiet):
+
+    src_ds = gdal.GetDriverByName("MEM").CreateVector("")
+    src_lyr = src_ds.CreateLayer("test")
+    f = ogr.Feature(src_lyr.GetLayerDefn())
+    f.SetGeometry(ogr.CreateGeometryFromWkt("POINT Z (1 2 3)"))
+    src_lyr.CreateFeature(f)
+    f = ogr.Feature(src_lyr.GetLayerDefn())
+    f.SetGeometry(ogr.CreateGeometryFromWkt("POINT Z (1 2 3)"))
+    src_lyr.CreateFeature(f)
+
+    if quiet:
+        with gdaltest.error_raised(gdal.CE_None):
+            gdal.VectorTranslate(
+                tmp_vsimem / "out.mapml", src_ds, format="MAPML", quiet=True
+            )
+    else:
+        with gdaltest.error_raised(
+            gdal.CE_Warning, match="Attempt to write Z geometries"
+        ):
+            gdal.VectorTranslate(tmp_vsimem / "out.mapml", src_ds, format="MAPML")
+
+
+###############################################################################
+
+
+@pytest.mark.require_driver("GeoJSON")
+@pytest.mark.parametrize("quiet", [True, False])
+def test_ogr2ogr_lib_warn_no_M_support(tmp_vsimem, quiet):
+
+    src_ds = gdal.GetDriverByName("MEM").CreateVector("")
+    src_lyr = src_ds.CreateLayer("test")
+    f = ogr.Feature(src_lyr.GetLayerDefn())
+    f.SetGeometry(ogr.CreateGeometryFromWkt("POINT M (1 2 3)"))
+    src_lyr.CreateFeature(f)
+    f = ogr.Feature(src_lyr.GetLayerDefn())
+    f.SetGeometry(ogr.CreateGeometryFromWkt("POINT M (1 2 3)"))
+    src_lyr.CreateFeature(f)
+
+    if quiet:
+        with gdaltest.error_raised(gdal.CE_None):
+            gdal.VectorTranslate(tmp_vsimem / "out.geojson", src_ds, quiet=True)
+    else:
+        with gdaltest.error_raised(
+            gdal.CE_Warning, match="Attempt to write M geometries"
+        ):
+            gdal.VectorTranslate(tmp_vsimem / "out.geojson", src_ds)

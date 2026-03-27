@@ -65,12 +65,14 @@ Commands working with raster or vector inputs
    gdal_info
    gdal_convert
    gdal_pipeline
+   gdal_external
 
 .. only:: html
 
     - :ref:`gdal_info`: Get information on a dataset
     - :ref:`gdal_convert`: Convert a dataset
     - :ref:`gdal_pipeline`: Process a dataset applying several steps
+    - :ref:`gdal_external`: Execute an external program as a step of a pipeline
 
 Raster commands
 +++++++++++++++
@@ -110,6 +112,7 @@ Raster commands
    gdal_raster_pixel_info
    gdal_raster_polygonize
    gdal_raster_proximity
+   gdal_raster_read
    gdal_raster_reclassify
    gdal_raster_reproject
    gdal_raster_resize
@@ -127,6 +130,7 @@ Raster commands
    gdal_raster_unscale
    gdal_raster_update
    gdal_raster_viewshed
+   gdal_raster_write
    gdal_raster_zonal_stats
 
 .. only:: html
@@ -162,6 +166,7 @@ Raster commands
     - :ref:`gdal_raster_pansharpen`: Perform a pansharpen operation
     - :ref:`gdal_raster_polygonize`: Create a polygon feature dataset from a raster band
     - :ref:`gdal_raster_pixel_info`: Return information on a pixel of a raster dataset
+    - :ref:`gdal_raster_read`: Read a raster dataset (pipeline only)
     - :ref:`gdal_raster_rgb_to_palette`: Convert a RGB image into a pseudo-color / paletted image
     - :ref:`gdal_raster_reclassify`: Reclassify a raster dataset
     - :ref:`gdal_raster_reproject`: Reproject a raster dataset
@@ -179,6 +184,7 @@ Raster commands
     - :ref:`gdal_raster_unscale`: Convert scaled values of a raster dataset into unscaled values.
     - :ref:`gdal_raster_update`: Update the destination raster with the content of the input one.
     - :ref:`gdal_raster_viewshed`: Compute the viewshed of a raster dataset.
+    - :ref:`gdal_raster_write`: Write a raster dataset (pipeline only)
     - :ref:`gdal_raster_zonal_stats`: Compute raster zonal statistics
 
     Pipelines:
@@ -200,11 +206,14 @@ Vector commands
    gdal_vector_clip
    gdal_vector_combine
    gdal_vector_concat
+   gdal_vector_concave_hull
    gdal_vector_convert
+   gdal_vector_convex_hull
    gdal_vector_dissolve
    gdal_vector_edit
    gdal_vector_filter
    gdal_vector_info
+   gdal_vector_export_schema
    gdal_vector_explode_collections
    gdal_vector_grid
    gdal_vector_index
@@ -215,6 +224,8 @@ Vector commands
    gdal_vector_partition
    gdal_vector_pipeline
    gdal_vector_rasterize
+   gdal_vector_read
+   gdal_vector_rename_layer
    gdal_vector_reproject
    gdal_vector_select
    gdal_vector_segmentize
@@ -226,6 +237,7 @@ Vector commands
    gdal_vector_sql
    gdal_vector_swap_xy
    gdal_vector_update
+   gdal_vector_write
 
 .. only:: html
 
@@ -239,9 +251,12 @@ Vector commands
     - :ref:`gdal_vector_clip`: Clip a vector dataset
     - :ref:`gdal_vector_combine`: Combine geometries into collections
     - :ref:`gdal_vector_concat`: Concatenate vector datasets
+    - :ref:`gdal_vector_concave_hull`: Compute the concave hull of geometries of a vector dataset
     - :ref:`gdal_vector_convert`: Convert a vector dataset
+    - :ref:`gdal_vector_convex_hull`: Compute the convex hull of geometries of a vector dataset
     - :ref:`gdal_vector_edit`: Edit metadata of a vector dataset
     - :ref:`gdal_vector_explode_collections`: Explode geometries of type collection of a vector dataset
+    - :ref:`gdal_vector_export_schema`: Export the OGR_SCHEMA from a vector dataset
     - :ref:`gdal_vector_filter`: Filter a vector dataset
     - :ref:`gdal_vector_grid`: Create a regular grid from scattered points
     - :ref:`gdal_vector_info`: Get information on a vector dataset
@@ -252,6 +267,8 @@ Vector commands
     - :ref:`gdal_vector_materialize`: Materialize a piped dataset on disk to increase the efficiency of the following steps
     - :ref:`gdal_vector_partition`: Partition a vector dataset into multiple files
     - :ref:`gdal_vector_rasterize`: Burns vector geometries into a raster
+    - :ref:`gdal_vector_read`: Read a vector dataset (pipeline only)
+    - :ref:`gdal_vector_rename_layer`: Rename layer(s) of a vector dataset
     - :ref:`gdal_vector_reproject`: Reproject a vector dataset
     - :ref:`gdal_vector_segmentize`: Segmentize geometries of a vector dataset
     - :ref:`gdal_vector_select`: Select a subset of fields from a vector dataset.
@@ -263,6 +280,7 @@ Vector commands
     - :ref:`gdal_vector_sql`: Apply SQL statement(s) to a dataset
     - :ref:`gdal_vector_swap_xy`: Swap X and Y coordinates of geometries of a vector dataset
     - :ref:`gdal_vector_update`: Update an existing vector dataset with an input vector dataset
+    - :ref:`gdal_vector_write`: Write a vector dataset (pipeline only)
 
     Pipelines:
 

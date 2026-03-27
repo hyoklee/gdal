@@ -16,6 +16,8 @@
 #include "cpl_error.h"
 #include "gdal_priv.h"
 
+#include "gdalalg_external.h"
+
 #include "gdalalg_raster_read.h"
 #include "gdalalg_raster_mosaic.h"
 #include "gdalalg_raster_stack.h"
@@ -386,6 +388,7 @@ bool GDALPipelineStepAlgorithm::RunImpl(GDALProgressFunc pfnProgress,
                 else
                 {
                     writeAlg->m_outputVRTCompatible = m_outputVRTCompatible;
+                    writeAlg->m_quiet = m_quiet;
 
                     std::vector<GDALArgDatasetValue> inputDataset(1);
                     inputDataset[0].Set(m_outputDataset.GetDatasetRef());
@@ -532,6 +535,7 @@ GDALPipelineAlgorithm::GDALPipelineAlgorithm()
 
     GDALRasterPipelineAlgorithm::RegisterAlgorithms(m_stepRegistry, true);
     GDALVectorPipelineAlgorithm::RegisterAlgorithms(m_stepRegistry, true);
+    m_stepRegistry.Register<GDALExternalRasterOrVectorAlgorithm>();
     m_stepRegistry.Register<GDALRasterAsFeaturesAlgorithm>();
     m_stepRegistry.Register<GDALRasterContourAlgorithm>();
     m_stepRegistry.Register<GDALRasterFootprintAlgorithm>();

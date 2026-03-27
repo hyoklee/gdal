@@ -34,6 +34,9 @@ GEOPARQUET_1_1_0_JSON_SCHEMA = "data/parquet/schema_1_1_0.json"
 def _has_validate():
     import sys
 
+    if gdaltest.is_travis_branch("cmake-ubuntu-noble"):
+        pytest.skip()
+
     from test_py_scripts import samples_path
 
     try:
@@ -2692,6 +2695,21 @@ def test_ogr_parquet_arrow_stream_fast_attribute_filter_on_decimal128():
     assert batches[1].field("uint8")[0].as_py() == 5
     assert float(batches[0].field("decimal128")[0].as_py()) == -1234.567
     assert float(batches[1].field("decimal128")[0].as_py()) == -1234.567
+
+
+###############################################################################
+
+
+def test_ogr_parquet_arrow_stream_nanoarrow():
+
+    na = pytest.importorskip("nanoarrow")
+
+    ds = ogr.Open("data/parquet/test.parquet")
+    lyr = ds.GetLayer(0)
+    lyr.SetAttributeFilter("boolean = 0")
+    na_stream = na.ArrayStream(lyr)
+    batch = next(na_stream.__iter__())
+    assert len(batch) == 1
 
 
 ###############################################################################

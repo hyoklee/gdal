@@ -36,6 +36,8 @@ resampling, and rescaling pixels in the process.
 
 .. include:: options/help_and_help_general.rst
 
+.. include:: options/quiet.rst
+
 .. include:: options/ot.rst
 
 .. option:: -strict
@@ -440,6 +442,11 @@ source band, a mask band, an alpha band will not be used during resampling
 (when using :option:`-outsize` or :option:`-tr`).
 
 .. include:: nodata_handling_gdaladdo_gdal_translate.rst
+
+.. Return status code
+.. ------------------
+
+.. include:: return_code.rst
 
 C API
 -----

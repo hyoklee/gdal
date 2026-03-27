@@ -2467,3 +2467,64 @@ def test_ogr_sql_sqlite_execute_sql_error_on_spatial_filter_shp_layer(tmp_vsimem
         Exception, match="Cannot set spatial filter: no geometry field present in layer"
     ):
         ds.ExecuteSQL("SELECT 1 FROM test", spatialFilter=geom, dialect="SQLITE")
+
+
+###############################################################################
+# Check that we detect multiple statements and error out
+
+
+@gdaltest.enable_exceptions()
+@pytest.mark.parametrize(
+    "sql,error_expected",
+    [
+        ("SELECT 1", False),
+        ("SELECT 1 ", False),
+        ("SELECT 1\t", False),
+        ("SELECT 1\n", False),
+        ("SELECT 1\r", False),
+        ("SELECT 1 -- ok SELECT 2", False),
+        ("SELECT 1 -- ok\n-- disabled", False),
+        ("SELECT 1 /* ok SELECT 2 */ ", False),
+        ("SELECT 1 /* ok\nSELECT 2 */", False),
+        # Error cases
+        ("SELECT 1;SELECT 2", True),
+        ("SELECT 1;\nSELECT 2", True),
+        ("SELECT 1; -- \nSELECT 2", True),
+    ],
+)
+def test_ogr_sql_sqlite_detect_multiple_statements(sql, error_expected):
+    ds = ogr.Open("data/poly.shp")
+    if error_expected:
+        with pytest.raises(Exception, match="Multiple statements are not supported"):
+            with ds.ExecuteSQL(sql, dialect="SQLite"):
+                pass
+    else:
+        with ds.ExecuteSQL(sql, dialect="SQLite"):
+            pass
+
+
+###############################################################################
+# Test https://github.com/OSGeo/gdal/issues/14113
+
+
+def test_ogr_sql_sqlite_null_geometry_in_first_row():
+
+    if ogrtest.has_spatialite is False:
+        pytest.skip("Spatialite not available")
+
+    if gdaltest.is_travis_branch("ubuntu_2004"):
+        pytest.skip("fails on that platform")
+
+    with ogr.Open("data/poly.shp") as ds:
+        with ds.ExecuteSQL(
+            "SELECT geom FROM (SELECT ST_Buffer(geometry, -100) AS geom FROM poly) ORDER BY geom IS NULL DESC",
+            dialect="SQLite",
+        ) as sql_lyr:
+            assert sql_lyr.GetGeometryColumn() == "geom"
+
+            for i in range(2):
+                f = sql_lyr.GetNextFeature()
+                assert f.GetGeometryRef() is None
+
+            f = sql_lyr.GetNextFeature()
+            assert f.GetGeometryRef() is not None

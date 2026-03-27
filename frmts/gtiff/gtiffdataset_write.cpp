@@ -4701,8 +4701,21 @@ bool GTiffDataset::WriteMetadata(GDALDataset *poSrcDS, TIFF *l_hTIFF,
     {
         for (int nBand = 1; nBand <= poSrcDS->GetRasterCount(); ++nBand)
         {
-            GDALRasterBand *poBand = poSrcDS->GetRasterBand(nBand);
-            const auto poRAT = poBand->GetDefaultRAT();
+            GDALRasterAttributeTable *poRAT = nullptr;
+            if (poSrcDSGTiff)
+            {
+                auto poBand = cpl::down_cast<GTiffRasterBand *>(
+                    poSrcDSGTiff->GetRasterBand(nBand));
+                // Scenario of https://github.com/OSGeo/gdal/issues/13930
+                // Do not try to fetch the RAT from auxiliary files if creating
+                // a new GeoTIFF file
+                if (poBand->m_bRATSet)
+                    poRAT = poBand->GetDefaultRAT();
+            }
+            else
+            {
+                poRAT = poSrcDS->GetRasterBand(nBand)->GetDefaultRAT();
+            }
             if (poRAT)
             {
                 auto psSerializedRAT = poRAT->Serialize();
@@ -5385,7 +5398,7 @@ TIFF *GTiffDataset::CreateLL(const char *pszFilename, int nXSize, int nYSize,
     {
         ReportError(
             pszFilename, CE_Failure, CPLE_AppDefined,
-            "Attempt to create %dx%dx%d TIFF file, but width, height and bands"
+            "Attempt to create %dx%dx%d TIFF file, but width, height and bands "
             "must be positive.",
             nXSize, nYSize, l_nBands);
 
@@ -6799,6 +6812,12 @@ GDALDataset *GTiffDataset::Create(const char *pszFilename, int nXSize,
     poDS->nRasterYSize = nYSize;
     poDS->eAccess = GA_Update;
 
+    // This will avoid GTiffDataset::GetSiblingFiles() to trigger a directory
+    // listing, which is potentially costly and only makes sense when opening
+    // new files, not creating new ones. Helps for scenario like
+    // https://github.com/OSGeo/gdal/issues/13930
+    poDS->m_bHasGotSiblingFiles = true;
+
     poDS->m_nColorTableMultiplier = nColorTableMultiplier;
 
     poDS->m_bCrystalized = false;
@@ -7030,19 +7049,17 @@ CPLErr GTiffDataset::CopyImageryAndMask(GTiffDataset *poDstDS,
                             (l_nBands + (poDstDS->m_poMaskDS ? 1 : 0));
         for (int i = 0; eErr == CE_None && i < l_nBands; i++)
         {
-            for (int iY = 0, nYBlock = 0; iY < nYSize && eErr == CE_None;
+            for (int iY = 0; iY < nYSize && eErr == CE_None;
                  iY = ((nYSize - iY < poDstDS->m_nBlockYSize)
                            ? nYSize
-                           : iY + poDstDS->m_nBlockYSize),
-                     nYBlock++)
+                           : iY + poDstDS->m_nBlockYSize))
             {
                 const int nReqYSize =
                     std::min(nYSize - iY, poDstDS->m_nBlockYSize);
-                for (int iX = 0, nXBlock = 0; iX < nXSize && eErr == CE_None;
+                for (int iX = 0; iX < nXSize && eErr == CE_None;
                      iX = ((nXSize - iX < poDstDS->m_nBlockXSize)
                                ? nXSize
-                               : iX + poDstDS->m_nBlockXSize),
-                         nXBlock++)
+                               : iX + poDstDS->m_nBlockXSize))
                 {
                     const int nReqXSize =
                         std::min(nXSize - iX, poDstDS->m_nBlockXSize);

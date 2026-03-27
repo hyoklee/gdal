@@ -87,6 +87,7 @@ constexpr const char *MD_BLOCK_X_SIZE = "BLOCKXSIZE";
 constexpr const char *MD_BLOCK_Y_SIZE = "BLOCKYSIZE";
 constexpr const char *MD_MASK_BAND = "MASK_BAND";
 constexpr const char *MD_RESAMPLING = "RESAMPLING";
+constexpr const char *MD_INTERLEAVE = "INTERLEAVE";
 
 constexpr const char *const apszTIOptions[] = {MD_RESX,
                                                MD_RESY,
@@ -108,7 +109,8 @@ constexpr const char *const apszTIOptions[] = {MD_RESX,
                                                MD_BLOCK_X_SIZE,
                                                MD_BLOCK_Y_SIZE,
                                                MD_MASK_BAND,
-                                               MD_RESAMPLING};
+                                               MD_RESAMPLING,
+                                               MD_INTERLEAVE};
 
 constexpr const char *const MD_BAND_OFFSET = "OFFSET";
 constexpr const char *const MD_BAND_SCALE = "SCALE";
@@ -150,6 +152,44 @@ static inline bool ENDS_WITH_CI(const char *a, const char *b)
 {
     return strlen(a) >= strlen(b) && EQUAL(a + strlen(a) - strlen(b), b);
 }
+
+/************************************************************************/
+/*                          GTISharedSourceKey                          */
+/************************************************************************/
+
+struct GTISharedSourceKey
+{
+    std::string osTileName{};
+    std::vector<int> anBands{};
+
+    bool operator==(const GTISharedSourceKey &other) const
+    {
+        return osTileName == other.osTileName && anBands == other.anBands;
+    }
+
+    CPL_NOSANITIZE_UNSIGNED_INT_OVERFLOW
+    size_t getHash() const noexcept
+    {
+        size_t h = std::hash<std::string>{}(osTileName);
+        for (int b : anBands)
+        {
+            // Cf https://www.boost.org/doc/libs/1_36_0/doc/html/hash/reference.html#boost.hash_combine
+            h ^= std::hash<int>{}(b) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        }
+        return h;
+    }
+};
+
+namespace std
+{
+template <> struct hash<GTISharedSourceKey>
+{
+    size_t operator()(const GTISharedSourceKey &val) const noexcept
+    {
+        return val.getHash();
+    }
+};
+}  // namespace std
 
 /************************************************************************/
 /*                         GDALTileIndexDataset                         */
@@ -238,13 +278,16 @@ class GDALTileIndexDataset final : public GDALPamDataset
 
         //! Source dataset, raw/unwarped
         GDALDataset *poUnreprojectedDS = nullptr;
+
+        //! Whether (nBandCount, panBandMap) is taken into account by poDS
+        bool bBandMapTakenIntoAccount = false;
     };
 
     //! Cache from dataset name to dataset handle.
     //! Note that the dataset objects are ultimately GDALProxyPoolDataset,
     //! and that the GDALProxyPoolDataset limits the number of simultaneously
     //! opened real datasets (controlled by GDAL_MAX_DATASET_POOL_SIZE). Hence 500 is not too big.
-    lru11::Cache<std::string, std::shared_ptr<SharedDataset>>
+    lru11::Cache<GTISharedSourceKey, std::shared_ptr<SharedDataset>>
         m_oMapSharedSources{500};
 
     //! Mask band (e.g. for JPEG compressed + mask band)
@@ -255,6 +298,9 @@ class GDALTileIndexDataset final : public GDALPamDataset
 
     //! Whether all bands of the tile index have the same nodata value.
     bool m_bSameNoData = true;
+
+    //! Whether a band interleave must be exposed.
+    bool m_bBandInterleave = false;
 
     //! Minimum X of the current pixel request, in georeferenced units.
     double m_dfLastMinXFilter = std::numeric_limits<double>::quiet_NaN();
@@ -267,6 +313,9 @@ class GDALTileIndexDataset final : public GDALPamDataset
 
     //! Maximum Y of the current pixel request, in georeferenced units.
     double m_dfLastMaxYFilter = std::numeric_limits<double>::quiet_NaN();
+
+    //! Bands for which m_aoSourceDesc is valid (only if m_bBandInterleave)
+    std::vector<int> m_anLastBands{};
 
     //! Index of the field (within m_poLayer->GetLayerDefn()) used to sort, or -1 if none.
     int m_nSortFieldIndex = -1;
@@ -318,6 +367,9 @@ class GDALTileIndexDataset final : public GDALPamDataset
         //! Source dataset, raw/unwarped
         GDALDataset *poUnreprojectedDS = nullptr;
 
+        //! Whether (nBandCount, panBandMap) is taken into account by poDS
+        bool bBandMapTakenIntoAccount = false;
+
         //! VRTSimpleSource or VRTComplexSource for the source.
         std::unique_ptr<VRTSimpleSource> poSource{};
 
@@ -355,14 +407,18 @@ class GDALTileIndexDataset final : public GDALPamDataset
     //! Whether the GTI file is a STAC collection
     bool m_bSTACCollection = false;
 
+    std::string m_osWarpMemory{};
+
     //! From a source dataset name, return its SourceDesc description structure.
     bool GetSourceDesc(const std::string &osTileName, SourceDesc &oSourceDesc,
-                       std::mutex *pMutex);
+                       std::mutex *pMutex, int nBandCount,
+                       const int *panBandMap);
 
     //! Collect sources corresponding to the georeferenced window of interest,
     //! and store them in m_aoSourceDesc[].
     bool CollectSources(double dfXOff, double dfYOff, double dfXSize,
-                        double dfYSize, bool bMultiThreadAllowed);
+                        double dfYSize, int nBandCount, const int *panBandMap,
+                        bool bMultiThreadAllowed);
 
     //! Sort sources according to m_nSortFieldIndex.
     void SortSourceDesc();
@@ -2401,7 +2457,14 @@ bool GDALTileIndexDataset::Open(GDALOpenInfo *poOpenInfo)
         }
     }
 
-    if (nBandCount > 1 && !GetMetadata("IMAGE_STRUCTURE"))
+    const char *pszInterleave = GetOption(MD_INTERLEAVE);
+    if (pszInterleave)
+    {
+        GDALDataset::SetMetadataItem("INTERLEAVE", pszInterleave,
+                                     "IMAGE_STRUCTURE");
+        m_bBandInterleave = EQUAL(pszInterleave, "BAND");
+    }
+    else if (nBandCount > 1 && !GetMetadata("IMAGE_STRUCTURE"))
     {
         GDALDataset::SetMetadataItem("INTERLEAVE", "PIXEL", "IMAGE_STRUCTURE");
     }
@@ -2416,6 +2479,9 @@ bool GDALTileIndexDataset::Open(GDALOpenInfo *poOpenInfo)
     /*      Check for overviews.                                            */
     /* -------------------------------------------------------------------- */
     oOvManager.Initialize(this, poOpenInfo->pszFilename);
+
+    m_osWarpMemory = CSLFetchNameValueDef(poOpenInfo->papszOpenOptions,
+                                          "WARPING_MEMORY_SIZE", "");
 
     return true;
 }
@@ -2749,6 +2815,7 @@ CPLErr GDALTileIndexDataset::FlushCache(bool bAtClosing)
     m_dfLastMinYFilter = std::numeric_limits<double>::quiet_NaN();
     m_dfLastMaxXFilter = std::numeric_limits<double>::quiet_NaN();
     m_dfLastMaxYFilter = std::numeric_limits<double>::quiet_NaN();
+    m_anLastBands.clear();
     m_aoSourceDesc.clear();
     if (GDALPamDataset::FlushCache(bAtClosing) != CE_None)
         eErr = CE_Failure;
@@ -3187,7 +3254,8 @@ const char *GDALTileIndexBand::GetMetadataItem(const char *pszName,
             iLine >= GetYSize())
             return nullptr;
 
-        if (!m_poDS->CollectSources(iPixel, iLine, 1, 1,
+        const int anBand[] = {nBand};
+        if (!m_poDS->CollectSources(iPixel, iLine, 1, 1, 1, anBand,
                                     /* bMultiThreadAllowed = */ false))
             return nullptr;
 
@@ -3207,7 +3275,6 @@ const char *GDALTileIndexBand::GetMetadataItem(const char *pszName,
                 m_osLastLocationInfo += "</File>";
             };
 
-            const int anBand[] = {nBand};
             if (!m_poDS->NeedInitBuffer(1, anBand))
             {
                 AddSource(m_poDS->m_aoSourceDesc.back());
@@ -3494,23 +3561,31 @@ GDALTileIndexDataset::GetSourcesMoreRecentThan(int64_t mTime)
 
 bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
                                          SourceDesc &oSourceDesc,
-                                         std::mutex *pMutex)
+                                         std::mutex *pMutex, int nBandCount,
+                                         const int *panBandMap)
 {
 
     if (pMutex)
         pMutex->lock();
     std::shared_ptr<SharedDataset> sharedDS;
-    m_oMapSharedSources.tryGet(osTileName, sharedDS);
+    GTISharedSourceKey key;
+    key.osTileName = osTileName;
+    if (m_bBandInterleave)
+        key.anBands.insert(key.anBands.end(), panBandMap,
+                           panBandMap + nBandCount);
+    m_oMapSharedSources.tryGet(key, sharedDS);
     if (pMutex)
         pMutex->unlock();
 
     std::shared_ptr<GDALDataset> poTileDS;
     GDALDataset *poUnreprojectedDS = nullptr;
+    bool bBandMapTakenIntoAccount = false;
 
     if (sharedDS)
     {
         poTileDS = sharedDS->poDS;
         poUnreprojectedDS = sharedDS->poUnreprojectedDS;
+        bBandMapTakenIntoAccount = sharedDS->bBandMapTakenIntoAccount;
     }
     else
     {
@@ -3545,13 +3620,19 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
         if (!m_oSRS.IsEmpty() && poTileSRS != nullptr &&
             !m_oSRS.IsSame(poTileSRS))
         {
-            CPLDebug("VRT",
+            CPLDebug("GTI",
                      "Tile %s has not the same SRS as the VRT. "
                      "Proceed to on-the-fly warping",
                      osTileName.c_str());
             bWarpVRT = true;
             bExportSRS = true;
-            bAddAlphaToVRT = true;
+            if (poTileDS->GetRasterBand(poTileDS->GetRasterCount())
+                        ->GetColorInterpretation() != GCI_AlphaBand &&
+                GetRasterBand(nBands)->GetColorInterpretation() ==
+                    GCI_AlphaBand)
+            {
+                bAddAlphaToVRT = true;
+            }
         }
         else if (poTileDS->GetGeoTransform(tileGT) == CE_None &&
                  tileGT.yscale > 0 &&
@@ -3559,7 +3640,7 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
                   (!m_oSRS.IsEmpty() && poTileSRS && m_oSRS.IsSame(poTileSRS))))
 
         {
-            CPLDebug("VRT",
+            CPLDebug("GTI",
                      "Tile %s is south-up oriented. "
                      "Proceed to on-the-fly warping",
                      osTileName.c_str());
@@ -3620,37 +3701,37 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
             }
 
             // Second pass to create a warped source VRT whose
-            // extent is aligned on the one of the target VRT
+            // extent is aligned on the one of the target GTI
             GDALGeoTransform warpDSGT;
             const auto eErr = poWarpDS->GetGeoTransform(warpDSGT);
             CPL_IGNORE_RET_VAL(eErr);
             CPLAssert(eErr == CE_None);
-            const double dfVRTMinX = m_gt.xorig;
-            const double dfVRTResX = m_gt.xscale;
-            const double dfVRTMaxY = m_gt.yorig;
-            const double dfVRTResYAbs = -m_gt.yscale;
+            const double dfGTIMinX = m_gt.xorig;
+            const double dfGTIResX = m_gt.xscale;
+            const double dfGTIMaxY = m_gt.yorig;
+            const double dfGTIResYAbs = -m_gt.yscale;
             const double dfWarpMinX =
-                std::floor((warpDSGT.xorig - dfVRTMinX) / dfVRTResX) *
-                    dfVRTResX +
-                dfVRTMinX;
+                std::floor((warpDSGT.xorig - dfGTIMinX) / dfGTIResX) *
+                    dfGTIResX +
+                dfGTIMinX;
             const double dfWarpMaxX =
                 std::ceil((warpDSGT.xorig +
                            warpDSGT.xscale * poWarpDS->GetRasterXSize() -
-                           dfVRTMinX) /
-                          dfVRTResX) *
-                    dfVRTResX +
-                dfVRTMinX;
+                           dfGTIMinX) /
+                          dfGTIResX) *
+                    dfGTIResX +
+                dfGTIMinX;
             const double dfWarpMaxY =
-                dfVRTMaxY -
-                std::floor((dfVRTMaxY - warpDSGT.yorig) / dfVRTResYAbs) *
-                    dfVRTResYAbs;
+                dfGTIMaxY -
+                std::floor((dfGTIMaxY - warpDSGT.yorig) / dfGTIResYAbs) *
+                    dfGTIResYAbs;
             const double dfWarpMinY =
-                dfVRTMaxY -
-                std::ceil((dfVRTMaxY -
+                dfGTIMaxY -
+                std::ceil((dfGTIMaxY -
                            (warpDSGT.yorig +
                             warpDSGT.yscale * poWarpDS->GetRasterYSize())) /
-                          dfVRTResYAbs) *
-                    dfVRTResYAbs;
+                          dfGTIResYAbs) *
+                    dfGTIResYAbs;
 
             aosOptions.AddString("-te");
             aosOptions.AddString(CPLSPrintf("%.17g", dfWarpMinX));
@@ -3659,11 +3740,27 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
             aosOptions.AddString(CPLSPrintf("%.17g", dfWarpMaxY));
 
             aosOptions.AddString("-tr");
-            aosOptions.AddString(CPLSPrintf("%.17g", dfVRTResX));
-            aosOptions.AddString(CPLSPrintf("%.17g", dfVRTResYAbs));
+            aosOptions.AddString(CPLSPrintf("%.17g", dfGTIResX));
+            aosOptions.AddString(CPLSPrintf("%.17g", dfGTIResYAbs));
+
+            if (m_bBandInterleave)
+            {
+                bBandMapTakenIntoAccount = true;
+                for (int i = 0; i < nBandCount; ++i)
+                {
+                    aosOptions.AddString("-b");
+                    aosOptions.AddString(CPLSPrintf("%d", panBandMap[i]));
+                }
+            }
 
             if (bAddAlphaToVRT)
                 aosOptions.AddString("-dstalpha");
+
+            if (!m_osWarpMemory.empty())
+            {
+                aosOptions.AddString("-wm");
+                aosOptions.AddString(m_osWarpMemory.c_str());
+            }
 
             psWarpOptions = GDALWarpAppOptionsNew(aosOptions.List(), nullptr);
             poWarpDS.reset(GDALDataset::FromHandle(GDALWarp(
@@ -3680,10 +3777,11 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
         sharedDS = std::make_shared<SharedDataset>();
         sharedDS->poDS = poTileDS;
         sharedDS->poUnreprojectedDS = poUnreprojectedDS;
+        sharedDS->bBandMapTakenIntoAccount = bBandMapTakenIntoAccount;
 
         if (pMutex)
             pMutex->lock();
-        m_oMapSharedSources.insert(osTileName, sharedDS);
+        m_oMapSharedSources.insert(key, sharedDS);
         if (pMutex)
             pMutex->unlock();
     }
@@ -3700,8 +3798,8 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
     bool bSameNoData = true;
     double dfNoDataValue = 0;
     GDALRasterBand *poMaskBand = nullptr;
-    const int nBandCount = poTileDS->GetRasterCount();
-    for (int iBand = 0; iBand < nBandCount; ++iBand)
+    const int nTileBandCount = poTileDS->GetRasterCount();
+    for (int iBand = 0; iBand < nTileBandCount; ++iBand)
     {
         auto poTileBand = poTileDS->GetRasterBand(iBand + 1);
         int bThisBandHasNoData = false;
@@ -3749,6 +3847,7 @@ bool GDALTileIndexDataset::GetSourceDesc(const std::string &osTileName,
     oSourceDesc.osName = osTileName;
     oSourceDesc.poDS = std::move(poTileDS);
     oSourceDesc.poUnreprojectedDS = poUnreprojectedDS;
+    oSourceDesc.bBandMapTakenIntoAccount = bBandMapTakenIntoAccount;
     oSourceDesc.poSource = std::move(poSource);
     oSourceDesc.bHasNoData = bHasNoData;
     oSourceDesc.bSameNoData = bSameNoData;
@@ -3778,6 +3877,7 @@ int GDALTileIndexDataset::GetNumThreads() const
 
 bool GDALTileIndexDataset::CollectSources(double dfXOff, double dfYOff,
                                           double dfXSize, double dfYSize,
+                                          int nBandCount, const int *panBandMap,
                                           bool bMultiThreadAllowed)
 {
     const double dfMinX = m_gt.xorig + dfXOff * m_gt.xscale;
@@ -3786,7 +3886,10 @@ bool GDALTileIndexDataset::CollectSources(double dfXOff, double dfYOff,
     const double dfMinY = dfMaxY + dfYSize * m_gt.yscale;
 
     if (dfMinX == m_dfLastMinXFilter && dfMinY == m_dfLastMinYFilter &&
-        dfMaxX == m_dfLastMaxXFilter && dfMaxY == m_dfLastMaxYFilter)
+        dfMaxX == m_dfLastMaxXFilter && dfMaxY == m_dfLastMaxYFilter &&
+        (!m_bBandInterleave ||
+         (m_anLastBands ==
+          std::vector<int>(panBandMap, panBandMap + nBandCount))))
     {
         return true;
     }
@@ -3795,6 +3898,8 @@ bool GDALTileIndexDataset::CollectSources(double dfXOff, double dfYOff,
     m_dfLastMinYFilter = dfMinY;
     m_dfLastMaxXFilter = dfMaxX;
     m_dfLastMaxYFilter = dfMaxY;
+    if (m_bBandInterleave)
+        m_anLastBands = std::vector<int>(panBandMap, panBandMap + nBandCount);
     m_bLastMustUseMultiThreading = false;
 
     OGRLayer *poSQLLayer = nullptr;
@@ -3949,7 +4054,8 @@ bool GDALTileIndexDataset::CollectSources(double dfXOff, double dfYOff,
             pszTileName, GetDescription(), m_bSTACCollection));
 
         SourceDesc oSourceDesc;
-        if (!GetSourceDesc(osTileName, oSourceDesc, nullptr))
+        if (!GetSourceDesc(osTileName, oSourceDesc, nullptr, nBandCount,
+                           panBandMap))
             return false;
 
         // Check consistency of bounding box in tile index vs actual
@@ -4417,7 +4523,7 @@ CPLErr GDALTileIndexDataset::RenderSource(
     const SourceDesc &oSourceDesc, bool bNeedInitBuffer, int nBandNrMax,
     int nXOff, int nYOff, int nXSize, int nYSize, double dfXOff, double dfYOff,
     double dfXSize, double dfYSize, int nBufXSize, int nBufYSize, void *pData,
-    GDALDataType eBufType, int nBandCount, BANDMAP_TYPE panBandMap,
+    GDALDataType eBufType, int nBandCount, BANDMAP_TYPE panBandMapIn,
     GSpacing nPixelSpace, GSpacing nLineSpace, GSpacing nBandSpace,
     GDALRasterIOExtraArg *psExtraArg,
     VRTSource::WorkingState &oWorkingState) const
@@ -4426,6 +4532,21 @@ CPLErr GDALTileIndexDataset::RenderSource(
     auto &poSource = oSourceDesc.poSource;
     auto poComplexSource = dynamic_cast<VRTComplexSource *>(poSource.get());
     CPLErr eErr = CE_None;
+
+    const auto GetBandFromBandMap = [&oSourceDesc, panBandMapIn](int iBand)
+    {
+        return oSourceDesc.bBandMapTakenIntoAccount ? iBand + 1
+                                                    : panBandMapIn[iBand];
+    };
+
+    std::vector<int> anSerial;
+    if (oSourceDesc.bBandMapTakenIntoAccount)
+    {
+        for (int i = 0; i < nBandCount; ++i)
+            anSerial.push_back(i + 1);
+    }
+    BANDMAP_TYPE panBandMapForRasterIO =
+        oSourceDesc.bBandMapTakenIntoAccount ? anSerial.data() : panBandMapIn;
 
     if (poTileDS->GetRasterCount() + 1 == nBandNrMax &&
         papoBands[nBandNrMax - 1]->GetColorInterpretation() == GCI_AlphaBand &&
@@ -4448,7 +4569,7 @@ CPLErr GDALTileIndexDataset::RenderSource(
         // datasets and we read a RGB one.
         for (int iBand = 0; iBand < nBandCount && eErr == CE_None; ++iBand)
         {
-            const int nBandNr = panBandMap[iBand];
+            const int nBandNr = GetBandFromBandMap(iBand);
             if (nBandNr == nBandNrMax)
             {
                 // The window we will actually request from the source raster band.
@@ -4517,7 +4638,8 @@ CPLErr GDALTileIndexDataset::RenderSource(
         }
         return eErr;
     }
-    else if (poTileDS->GetRasterCount() < nBandNrMax)
+    else if (!oSourceDesc.bBandMapTakenIntoAccount &&
+             poTileDS->GetRasterCount() < nBandNrMax)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "%s has not enough bands.",
                  oSourceDesc.osName.c_str());
@@ -4585,7 +4707,7 @@ CPLErr GDALTileIndexDataset::RenderSource(
                 {
                     for (int iBand = 0; iBand < nBandCount; ++iBand)
                     {
-                        if (panBandMap[iBand] == nMaskBandNr)
+                        if (panBandMapIn[iBand] == nMaskBandNr)
                         {
                             iMaskBandIdx = iBand;
                             break;
@@ -4661,8 +4783,8 @@ CPLErr GDALTileIndexDataset::RenderSource(
             else if (poTileDS->RasterIO(GF_Read, nReqXOff, nReqYOff, nReqXSize,
                                         nReqYSize, abyWorkBuffer.data(),
                                         nOutXSize, nOutYSize, eBufType,
-                                        nBandCount, panBandMap, 0, 0, 0,
-                                        &sExtraArg) != CE_None)
+                                        nBandCount, panBandMapForRasterIO, 0, 0,
+                                        0, &sExtraArg) != CE_None)
             {
                 return CE_Failure;
             }
@@ -4705,16 +4827,17 @@ CPLErr GDALTileIndexDataset::RenderSource(
             sExtraArg.eResampleAlg = m_eResampling;
         }
 
-        auto poTileBand = poTileDS->GetRasterBand(panBandMap[0]);
+        auto poTileBand = poTileDS->GetRasterBand(GetBandFromBandMap(0));
         oSimpleSource.SetRasterBand(poTileBand, false);
         eErr = oSimpleSource.DatasetRasterIO(
             papoBands[0]->GetRasterDataType(), nXOff, nYOff, nXSize, nYSize,
-            pData, nBufXSize, nBufYSize, eBufType, nBandCount, panBandMap,
-            nPixelSpace, nLineSpace, nBandSpace, &sExtraArg);
+            pData, nBufXSize, nBufYSize, eBufType, nBandCount,
+            panBandMapForRasterIO, nPixelSpace, nLineSpace, nBandSpace,
+            &sExtraArg);
     }
     else if (m_bSameDataType && !poComplexSource)
     {
-        auto poTileBand = poTileDS->GetRasterBand(panBandMap[0]);
+        auto poTileBand = poTileDS->GetRasterBand(GetBandFromBandMap(0));
         poSource->SetRasterBand(poTileBand, false);
 
         GDALRasterIOExtraArg sExtraArg;
@@ -4737,14 +4860,15 @@ CPLErr GDALTileIndexDataset::RenderSource(
 
         eErr = poSource->DatasetRasterIO(
             papoBands[0]->GetRasterDataType(), nXOff, nYOff, nXSize, nYSize,
-            pData, nBufXSize, nBufYSize, eBufType, nBandCount, panBandMap,
-            nPixelSpace, nLineSpace, nBandSpace, &sExtraArg);
+            pData, nBufXSize, nBufYSize, eBufType, nBandCount,
+            panBandMapForRasterIO, nPixelSpace, nLineSpace, nBandSpace,
+            &sExtraArg);
     }
     else
     {
         for (int i = 0; i < nBandCount && eErr == CE_None; ++i)
         {
-            const int nBandNr = panBandMap[i];
+            const int nBandNr = GetBandFromBandMap(i);
             GByte *pabyBandData = static_cast<GByte *>(pData) + i * nBandSpace;
             auto poTileBand = poTileDS->GetRasterBand(nBandNr);
             if (poComplexSource)
@@ -4820,7 +4944,8 @@ CPLErr GDALTileIndexDataset::IRasterIO(
         dfYSize = psExtraArg->dfYSize;
     }
 
-    if (!CollectSources(dfXOff, dfYOff, dfXSize, dfYSize,
+    if (!CollectSources(dfXOff, dfYOff, dfXSize, dfYSize, nBandCount,
+                        panBandMap,
                         /* bMultiThreadAllowed = */ true))
     {
         return CE_Failure;
@@ -4987,7 +5112,8 @@ void GDALTileIndexDataset::RasterIOJob::Func(void *pData)
 
         const bool bCanOpenSource =
             psJob->poDS->GetSourceDesc(osTileName, oSourceDesc,
-                                       &psJob->poQueueWorkingStates->oMutex) &&
+                                       &psJob->poQueueWorkingStates->oMutex,
+                                       psJob->nBandCount, psJob->panBandMap) &&
             oSourceDesc.poDS;
 
         if (!bCanOpenSource)
@@ -5321,9 +5447,12 @@ void GDALRegister_GTI()
         "  <Option name='MINY' type='float'/>"
         "  <Option name='MAXX' type='float'/>"
         "  <Option name='MAXY' type='float'/>"
-        "<Option name='NUM_THREADS' type='string' description="
+        "  <Option name='NUM_THREADS' type='string' description="
         "'Number of worker threads for reading. Can be set to ALL_CPUS' "
         "default='ALL_CPUS'/>"
+        "  <Option name='WARPING_MEMORY_SIZE' type='string' description="
+        "'Set the amount of memory that the warp API is allowed to use for "
+        "caching' default='64MB'/>"
         "</OpenOptionList>");
 
 #ifdef GDAL_ENABLE_ALGORITHMS

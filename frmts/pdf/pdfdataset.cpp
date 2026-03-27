@@ -1446,6 +1446,8 @@ class GDALPDFiumOCContext final : public CPDF_OCContextInterface
     {
     }
 
+    ~GDALPDFiumOCContext() override;
+
     virtual bool
     CheckOCGDictVisible(const CPDF_Dictionary *pOCGDict) const override
     {
@@ -1461,6 +1463,8 @@ class GDALPDFiumOCContext final : public CPDF_OCContextInterface
         return m_DefaultOCContext->CheckOCGDictVisible(pOCGDict);
     }
 };
+
+GDALPDFiumOCContext::~GDALPDFiumOCContext() = default;
 
 /************************************************************************/
 /*                     GDALPDFiumRenderDeviceDriver                     */
@@ -1488,7 +1492,7 @@ class GDALPDFiumRenderDeviceDriver final : public RenderDeviceDriverIface
     {
     }
 
-    virtual ~GDALPDFiumRenderDeviceDriver() = default;
+    ~GDALPDFiumRenderDeviceDriver() override;
 
     void SetEnableVector(int bFlag)
     {
@@ -1627,13 +1631,13 @@ class GDALPDFiumRenderDeviceDriver final : public RenderDeviceDriverIface
                                        options, blend_type);
     }
 
-    virtual bool ContinueDIBits(CFX_AggImageRenderer *handle,
+    virtual bool ContinueDIBits(Continuation *continuation,
                                 PauseIndicatorIface *pPause) override
     {
-        return m_poParent->ContinueDIBits(handle, pPause);
+        return m_poParent->ContinueDIBits(continuation, pPause);
     }
 
-    virtual bool DrawDeviceText(const pdfium::span<const TextCharPos> &pCharPos,
+    virtual bool DrawDeviceText(pdfium::span<const TextCharPos> pCharPos,
                                 CFX_Font *pFont,
                                 const CFX_Matrix &mtObject2Device,
                                 float font_size, uint32_t color,
@@ -1707,6 +1711,8 @@ class GDALPDFiumRenderDeviceDriver final : public RenderDeviceDriverIface
     }
 #endif
 };
+
+GDALPDFiumRenderDeviceDriver::~GDALPDFiumRenderDeviceDriver() = default;
 
 /************************************************************************/
 /*                       PDFiumRenderPageBitmap()                       */
@@ -1826,15 +1832,21 @@ myRenderPageWithContext(PDFDataset *poDS, CPDF_PageRenderContext *pContext,
                      color_scheme, bNeedToRestore, pause);
 }
 
+namespace
+{
 class MyRenderDevice final : public CFX_RenderDevice
 {
 
   public:
+    ~MyRenderDevice() override;
+
     // Substitution for CFX_DefaultRenderDevice::Attach
     bool Attach(const RetainPtr<CFX_DIBitmap> &pBitmap, bool bRgbByteOrder,
                 const RetainPtr<CFX_DIBitmap> &pBackdropBitmap,
                 bool bGroupKnockout, const char *pszRenderingOptions);
 };
+
+MyRenderDevice::~MyRenderDevice() = default;
 
 bool MyRenderDevice::Attach(const RetainPtr<CFX_DIBitmap> &pBitmap,
                             bool bRgbByteOrder,
@@ -1888,6 +1900,7 @@ bool MyRenderDevice::Attach(const RetainPtr<CFX_DIBitmap> &pBitmap,
     SetDeviceDriver(std::move(driver));
     return true;
 }
+}  // namespace
 
 void PDFDataset::PDFiumRenderPageBitmap(FPDF_BITMAP bitmap, FPDF_PAGE page,
                                         int start_x, int start_y, int size_x,

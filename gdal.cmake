@@ -307,12 +307,14 @@ else ()
         ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}
         ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}
       )
-      if( NOT "${CMAKE_INSTALL_RPATH}" STREQUAL "" )
-          message(WARNING "CMAKE_INSTALL_RPATH=${CMAKE_INSTALL_RPATH} will be ignored and replaced with ${base};${base}/${relDir} due to GDAL_SET_INSTALL_RELATIVE_RPATH being set")
-      endif()
-      set(CMAKE_INSTALL_RPATH ${base} ${base}/${relDir})
+      set(GDAL_INSTALL_RPATH "${base}")
+      set(GDAL_INSTALL_RPATH_FOR_BINARY "${base}/${relDir}")
   endif()
 endif ()
+
+if(GDAL_INSTALL_RPATH)
+  set_target_properties(${GDAL_LIB_TARGET_NAME} PROPERTIES INSTALL_RPATH ${GDAL_INSTALL_RPATH})
+endif()
 
 set(INSTALL_PLUGIN_FULL_DIR "${CMAKE_INSTALL_PREFIX}/${INSTALL_PLUGIN_DIR}")
 
@@ -766,7 +768,7 @@ set(GDAL_USE_EXTERNAL_LIBS_OLD_CACHED
     CACHE INTERNAL "Previous value of GDAL_USE_EXTERNAL_LIBS")
 
 # Emit a warning if users do not define the build type for non-multi config and that we can't find -O in CMAKE_CXX_FLAGS
-# This is not super idiomatic to warn this way, but this will help users transitionning from autoconf where the default
+# This is not super idiomatic to warn this way, but this will help users transitioning from autoconf where the default
 # settings result in a -O2 build.
 get_property(_isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if (NOT GDAL_CMAKE_QUIET

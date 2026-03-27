@@ -11,6 +11,7 @@
  ****************************************************************************/
 
 #include "gdalalg_vector_pipeline.h"
+#include "gdalalg_external.h"
 #include "gdalalg_materialize.h"
 #include "gdalalg_vector_read.h"
 #include "gdalalg_vector_buffer.h"
@@ -20,15 +21,19 @@
 #include "gdalalg_vector_clip.h"
 #include "gdalalg_vector_combine.h"
 #include "gdalalg_vector_concat.h"
+#include "gdalalg_vector_concave_hull.h"
+#include "gdalalg_vector_convex_hull.h"
 #include "gdalalg_vector_dissolve.h"
 #include "gdalalg_vector_edit.h"
 #include "gdalalg_vector_explode_collections.h"
+#include "gdalalg_vector_export_schema.h"
 #include "gdalalg_vector_filter.h"
 #include "gdalalg_vector_info.h"
 #include "gdalalg_vector_limit.h"
 #include "gdalalg_vector_make_point.h"
 #include "gdalalg_vector_make_valid.h"
 #include "gdalalg_vector_partition.h"
+#include "gdalalg_vector_rename_layer.h"
 #include "gdalalg_vector_reproject.h"
 #include "gdalalg_vector_segmentize.h"
 #include "gdalalg_vector_select.h"
@@ -159,6 +164,8 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
     registry.Register<GDALVectorCheckGeometryAlgorithm>();
     registry.Register<GDALVectorCombineAlgorithm>();
     registry.Register<GDALVectorConcatAlgorithm>();
+    registry.Register<GDALVectorConcaveHullAlgorithm>();
+    registry.Register<GDALVectorConvexHullAlgorithm>();
     registry.Register<GDALVectorCleanCoverageAlgorithm>();
 
     registry.Register<GDALVectorClipAlgorithm>(
@@ -169,6 +176,7 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
         addSuffixIfNeeded(GDALVectorEditAlgorithm::NAME));
 
     registry.Register<GDALVectorExplodeCollectionsAlgorithm>();
+    registry.Register<GDALVectorExportSchemaAlgorithm>();
 
     registry.Register<GDALMaterializeVectorAlgorithm>(
         addSuffixIfNeeded(GDALMaterializeVectorAlgorithm::NAME));
@@ -181,6 +189,7 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
     registry.Register<GDALVectorMakePointAlgorithm>();
     registry.Register<GDALVectorMakeValidAlgorithm>();
     registry.Register<GDALVectorPartitionAlgorithm>();
+    registry.Register<GDALVectorRenameLayerAlgorithm>();
     registry.Register<GDALVectorSegmentizeAlgorithm>();
 
     registry.Register<GDALVectorSelectAlgorithm>(
@@ -198,6 +207,11 @@ void GDALVectorPipelineAlgorithm::RegisterAlgorithms(
 
     registry.Register<GDALTeeVectorAlgorithm>(
         addSuffixIfNeeded(GDALTeeVectorAlgorithm::NAME));
+
+    if (!forMixedPipeline)
+    {
+        registry.Register<GDALExternalVectorAlgorithm>();
+    }
 }
 
 /************************************************************************/
@@ -315,6 +329,36 @@ std::string GDALVectorPipelineAlgorithm::GetUsageForCLI(
 }
 
 /************************************************************************/
+/*                      GDALVectorDecoratedDataset                      */
+/************************************************************************/
+
+namespace
+{
+class DummyDataset final : public GDALDataset
+{
+  public:
+    DummyDataset() = default;
+};
+}  // namespace
+
+/************************************************************************/
+/*                     GDALVectorDecoratedDataset()                     */
+/************************************************************************/
+
+GDALVectorDecoratedDataset::GDALVectorDecoratedDataset(GDALDataset *poSrcDS)
+    : m_dummySrcDS(poSrcDS ? nullptr : std::make_unique<DummyDataset>()),
+      m_srcDS(poSrcDS ? *poSrcDS : *(m_dummySrcDS.get()))
+{
+    SetDescription(m_srcDS.GetDescription());
+}
+
+/************************************************************************/
+/*                    ~GDALVectorDecoratedDataset()                     */
+/************************************************************************/
+
+GDALVectorDecoratedDataset::~GDALVectorDecoratedDataset() = default;
+
+/************************************************************************/
 /*                    GDALVectorPipelineOutputLayer                     */
 /************************************************************************/
 
@@ -382,6 +426,19 @@ OGRFeature *GDALVectorPipelineOutputLayer::GetNextRawFeature()
 /*                       GDALVectorOutputDataset                        */
 /************************************************************************/
 
+/************************************************************************/
+/*                      GDALVectorOutputDataset()                       */
+/************************************************************************/
+
+GDALVectorOutputDataset::GDALVectorOutputDataset(GDALDataset *poSrcDS)
+    : GDALVectorDecoratedDataset(poSrcDS)
+{
+}
+
+/************************************************************************/
+/*                           TestCapability()                           */
+/************************************************************************/
+
 int GDALVectorOutputDataset::TestCapability(const char *) const
 {
     return 0;
@@ -397,10 +454,8 @@ int GDALVectorOutputDataset::TestCapability(const char *) const
 
 GDALVectorPipelineOutputDataset::GDALVectorPipelineOutputDataset(
     GDALDataset &srcDS)
-    : m_srcDS(srcDS)
+    : GDALVectorDecoratedDataset(&srcDS)
 {
-    SetDescription(m_srcDS.GetDescription());
-    SetMetadata(m_srcDS.GetMetadata());
 }
 
 /************************************************************************/
@@ -520,7 +575,9 @@ const OGRFeatureDefn *GDALVectorPipelinePassthroughLayer::GetLayerDefn() const
 /*               GDALVectorNonStreamingAlgorithmDataset()               */
 /************************************************************************/
 
-GDALVectorNonStreamingAlgorithmDataset::GDALVectorNonStreamingAlgorithmDataset()
+GDALVectorNonStreamingAlgorithmDataset::GDALVectorNonStreamingAlgorithmDataset(
+    GDALDataset &oSrcDS)
+    : GDALVectorDecoratedDataset(&oSrcDS)
 {
 }
 

@@ -2001,7 +2001,7 @@ def test_ogr_gpkg_srs_non_duplication_custom_crs(tmp_vsimem):
         assert f["organization"] == "NONE"
         assert f["organization_coordsys_id"] == 100000
 
-    # Test now transitionning to definition_12_063 / WKT2 database structure...
+    # Test now transitioning to definition_12_063 / WKT2 database structure...
     srs_3d = osr.SpatialReference()
     srs_3d.SetFromUserInput("""GEOGCRS["srs 3d",
     DATUM["some datum",
@@ -7579,6 +7579,8 @@ def test_ogr_gpkg_alter_relations(tmp_vsimem, tmp_path):
     assert retrieved_rel.GetLeftMappingTableFields() == ["base_id"]
     assert retrieved_rel.GetRightMappingTableFields() == ["related_id"]
 
+    assert ds.GetLayerByName("origin_table_dest_table") is not None
+
     # try again, should fail because relationship already exists
     assert not ds.AddRelationship(relationship)
 
@@ -11439,3 +11441,37 @@ def test_ogr_gpkg_ST_Hilbert(tmp_vsimem):
         with pytest.raises(Exception, match="Invalid argument type for 2nd argument"):
             with ds.ExecuteSQL("SELECT ST_Hilbert(geom, NULL) FROM test") as sql_lyr:
                 pass
+
+
+###############################################################################
+# Check that we detect multiple statements and error out
+
+
+@gdaltest.enable_exceptions()
+@pytest.mark.parametrize(
+    "sql,error_expected",
+    [
+        ("SELECT 1", False),
+        ("SELECT 1 ", False),
+        ("SELECT 1\t", False),
+        ("SELECT 1\n", False),
+        ("SELECT 1\r", False),
+        ("SELECT 1 -- ok SELECT 2", False),
+        ("SELECT 1 -- ok\n-- disabled", False),
+        ("SELECT 1 /* ok SELECT 2 */ ", False),
+        ("SELECT 1 /* ok\nSELECT 2 */", False),
+        # Error cases
+        ("SELECT 1;SELECT 2", True),
+        ("SELECT 1;\nSELECT 2", True),
+        ("SELECT 1; -- \nSELECT 2", True),
+    ],
+)
+def test_ogr_gpkg_detect_multiple_statements(sql, error_expected):
+    ds = ogr.Open("data/gpkg/poly_golden.gpkg")
+    if error_expected:
+        with pytest.raises(Exception, match="Multiple statements are not supported"):
+            with ds.ExecuteSQL(sql):
+                pass
+    else:
+        with ds.ExecuteSQL(sql):
+            pass

@@ -612,9 +612,9 @@ unsigned int wrapper_VSIFReadL( void **buf, unsigned int nMembSize, unsigned int
 }
 
 %inline %{
-void wrapper_VSIGetMemFileBuffer(const char *utf8_path, GByte **out, vsi_l_offset *length)
+void wrapper_VSIGetMemFileBuffer(const char *utf8_string, GByte **out, vsi_l_offset *length)
 {
-    *out = VSIGetMemFileBuffer(utf8_path, length, 0);
+    *out = VSIGetMemFileBuffer(utf8_string, length, 0);
 }
 %}
 %clear (GByte **out, vsi_l_offset *length);
@@ -3169,31 +3169,31 @@ def _WarnIfUserHasNotSpecifiedIfUsingOgrExceptions():
 
 %pythoncode %{
 
-def CreateDataSource(self, utf8_path, options=None):
+def CreateDataSource(self, utf8_string, options=None):
     """
     Synonym for :py:meth:`CreateVector`.
     """
-    return self.Create(utf8_path, 0, 0, 0, GDT_Unknown, options or [])
+    return self.Create(utf8_string, 0, 0, 0, GDT_Unknown, options or [])
 
-def CopyDataSource(self, ds, utf8_path, options=None):
+def CopyDataSource(self, ds, utf8_string, options=None):
     """
     Synonym for :py:meth:`CreateCopy`.
     """
-    return self.CreateCopy(utf8_path, ds, options = options or [])
+    return self.CreateCopy(utf8_string, ds, options = options or [])
 
-def DeleteDataSource(self, utf8_path):
+def DeleteDataSource(self, utf8_string):
     """
     Synonym for :py:meth:`Delete`.
     """
-    return self.Delete(utf8_path)
+    return self.Delete(utf8_string)
 
-def Open(self, utf8_path, update=False):
+def Open(self, utf8_string, update=False):
     """
     Attempt to open a specified path with this driver.
 
     Parameters
     ----------
-    utf8_path : str
+    utf8_string : str
        The path to open
     update : bool, default = False
        Whether to open the dataset in update mode.
@@ -3203,7 +3203,7 @@ def Open(self, utf8_path, update=False):
     Dataset or None
         ``None`` on error
     """
-    return OpenEx(utf8_path,
+    return OpenEx(utf8_string,
                   OF_VECTOR | (OF_UPDATE if update else 0),
                   [self.GetDescription()])
 
@@ -4112,6 +4112,7 @@ def VectorTranslateOptions(options=None, format=None,
          zRes=None,
          mRes=None,
          setCoordPrecision=True,
+         quiet=False,
          callback=None, callback_data=None):
     """
     Create a VectorTranslateOptions() object that can be passed to
@@ -4247,6 +4248,8 @@ def VectorTranslateOptions(options=None, format=None,
         Geometry M coordinate resolution. Numeric value.
     setCoordPrecision : any
         Set to False to unset the geometry coordinate precision.
+    quiet: bool
+        Whether to suppress some warnings
     callback : any
         callback method
     callback_data : any
@@ -4435,6 +4438,8 @@ def VectorTranslateOptions(options=None, format=None,
             new_options += ['-mRes', str(mRes)]
         if setCoordPrecision is False:
             new_options += ["-unsetCoordPrecision"]
+        if quiet:
+            new_options += ["--quiet"]
 
     if callback is not None:
         new_options += ['-progress']
@@ -6034,7 +6039,7 @@ def config_options(options, thread_local=True):
             Dictionary of configuration options passed as key, value
        thread_local : bool, default=True
             Whether the configuration options should be only set on the current
-            thread.
+            thread. Note that GDAL_CACHEMAX cannot be set with thread_local=True.
 
        Returns
        -------
@@ -6051,15 +6056,28 @@ def config_options(options, thread_local=True):
     get_config_option = GetThreadLocalConfigOption if thread_local else GetGlobalConfigOption
     set_config_option = SetThreadLocalConfigOption if thread_local else SetConfigOption
 
+    if thread_local and "GDAL_CACHEMAX" in options:
+        raise ValueError("Setting GDAL_CACHEMAX has process-wide visibility, and is thus incompatible of the thread_local=True argument of gdal.config_options()")
+
     oldvals = {key: get_config_option(key) for key in options}
+    old_gdal_cache_max = GetCacheMax() if "GDAL_CACHEMAX" in options else None
 
     for key in options:
-        set_config_option(key, options[key])
+        val = options[key]
+        if key == "GDAL_CACHEMAX":
+            SetCacheMax(int(val))
+        else:
+            if val is None:
+                val = "__CPL_NULL_VALUE__"
+            set_config_option(key, val)
     try:
         yield
     finally:
         for key in options:
-            set_config_option(key, oldvals[key])
+            if key == "GDAL_CACHEMAX":
+                SetCacheMax(int(old_gdal_cache_max))
+            else:
+                set_config_option(key, oldvals[key])
 
 
 def config_option(key, value, thread_local=True):
@@ -6073,7 +6091,7 @@ def config_option(key, value, thread_local=True):
             Value of the configuration option
        thread_local : bool, default=True
             Whether the configuration option should be only set on the current
-            thread.
+            thread. Note that GDAL_CACHEMAX cannot be set with thread_local=True.
 
        Returns
        -------
@@ -6087,6 +6105,10 @@ def config_option(key, value, thread_local=True):
        ...     gdal.Warp("out.tif", "in.tif", dstSRS="EPSG:4326")
        <osgeo.gdal.Dataset; proxy of <Swig Object of type 'GDALDatasetShadow *' at 0x...> >
     """
+
+    if thread_local and key == "GDAL_CACHEMAX":
+        raise ValueError("Setting GDAL_CACHEMAX has process-wide visibility, and is thus incompatible of the thread_local=True argument of gdal.config_option()")
+
     return config_options({key: value}, thread_local=thread_local)
 
 

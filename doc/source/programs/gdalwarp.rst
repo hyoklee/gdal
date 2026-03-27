@@ -32,6 +32,8 @@ with control information.
 
 .. include:: options/help_and_help_general.rst
 
+.. include:: options/quiet.rst
+
 .. option:: -b <n>
 
 .. option:: -srcband <n>
@@ -389,10 +391,6 @@ with control information.
     input/output operation simultaneously. Note that computation is not
     multithreaded itself. To do that, you can use the :option:`-wo` NUM_THREADS=val/ALL_CPUS
     option, which can be combined with :option:`-multi`
-
-.. option:: -q
-
-    Be quiet.
 
 .. include:: options/if.rst
 
@@ -830,6 +828,10 @@ where cutline.csv content is like:
 
     gdalwarp -overwrite in_dem.tif out_dem.tif -s_srs EPSG:4326+5773 -t_srs EPSG:4979
 
+.. Return status code
+.. ------------------
+
+.. include:: return_code.rst
 
 C API
 -----

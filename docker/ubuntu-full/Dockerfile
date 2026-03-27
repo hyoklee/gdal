@@ -377,12 +377,12 @@ ARG WITH_PDFIUM=yes
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
   if echo "$WITH_PDFIUM" | grep -Eiq "^(y(es)?|1|true)$"  ; then ( \
-  curl -LO -fsS https://github.com/rouault/pdfium_build_gdal_3_12/releases/download/pdfium_7391_v1/install-ubuntu2004-rev7391.tar.gz \
-  && tar -xzf install-ubuntu2004-rev7391.tar.gz \
+  curl -LO -fsS https://github.com/rouault/pdfium_build_gdal_3_13/releases/download/pdfium_7724_v1/install-ubuntu2404-rev7724.tar.gz \
+  && tar -xzf install-ubuntu2404-rev7724.tar.gz \
   && chown -R root:root install \
   && mv install/lib/* /usr/lib/ \
   && mv install/include/* /usr/include/ \
-  && rm -rf install-ubuntu2004-rev7391.tar.gz install \
+  && rm -rf install-ubuntu2404-rev7724.tar.gz install \
   && apt-get update -y \
   && apt-get install -y --fix-missing --no-install-recommends liblcms2-dev${APT_ARCH_SUFFIX} \
   ) ; fi
@@ -425,9 +425,9 @@ RUN --mount=type=cache,id=ubuntu-full-libjxl,target=$HOME/.cache \
     && rm -rf libjxl
 
 # Install Arrow C++
-ARG ARROW_VERSION=21.0.0-1
+ARG ARROW_VERSION=23.0.1-1
 # ARROW_SOVERSION to be updated in the "Build final image" section too
-ARG ARROW_SOVERSION=2100
+ARG ARROW_SOVERSION=2300
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     . /buildscripts/bh-set-envvars.sh \
@@ -447,7 +447,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
 
 # Manually build ADBC packages to have support for BigQuery
-ARG ARROW_ADBC_VERSION=20
+ARG ARROW_ADBC_VERSION=22
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     . /buildscripts/bh-set-envvars.sh \
@@ -538,7 +538,7 @@ FROM $TARGET_BASE_IMAGE AS runner
 USER root
 RUN date
 ARG JAVA_VERSION=17
-ARG ARROW_SOVERSION=2100
+ARG ARROW_SOVERSION=2300
 
 ARG TARGET_ARCH=
 # Update distro
@@ -588,7 +588,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get install -y -V libarrow-compute${ARROW_SOVERSION}
 
 # Install libduckdb
-ARG DUCKDB_VERSION=v1.4.3
+ARG DUCKDB_VERSION=v1.5.1
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     export DEBIAN_FRONTEND=noninteractive \
